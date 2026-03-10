@@ -114,6 +114,32 @@ def generate_launch_description():
 
     
 
+    # ==================== Lightning SLAM 适配节点 ====================
+    # 将 3D 点云转换为 2D LaserScan（Lightning SLAM 不提供 /scan）
+    pointcloud_to_scan_node = Node(
+        package='pointcloud_to_laserscan',
+        executable='pointcloud_to_laserscan_node',
+        name='pointcloud_to_laserscan',
+        output='screen',
+        remappings=[
+            ('cloud_in', '/utlidar/cloud_livox_mid360'),
+            ('scan', '/scan'),
+        ],
+        parameters=[{
+            'target_frame': 'base',
+            'transform_tolerance': 0.1,
+            'min_height': -0.3,
+            'max_height': 1.0,
+            'angle_min': -3.14159,
+            'angle_max': 3.14159,
+            'angle_increment': 0.0087,
+            'scan_time': 0.1,
+            'range_min': 0.3,
+            'range_max': 12.0,
+            'use_inf': True,
+        }],
+    )
+
     # ==================== 构建启动描述 ====================
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -121,26 +147,23 @@ def generate_launch_description():
             default_value='false',
             description='Use simulation clock'
         ),
-        
+
         DeclareLaunchArgument(
             'params_file',
             default_value=params_file,
             description='Nav2 parameters file'
         ),
-        
-        # 硬件接口
-        # launch_urdf,
-        # launch_livox,
-        # livox_converter_node,
-        
-        # #感知处理
-        # launch_localization,
-        # pcd_to_pointcloud2_node,
-        # launch_octomap,
-        # launch_cloud2scan,
-        # lidar_loc_node,
-        
-        # # 导航核心
+
+        # Lightning SLAM 适配
+        pointcloud_to_scan_node,
+        Node(
+            package='g1_nav',
+            executable='tf_to_odom',
+            name='tf_to_odom',
+            output='screen',
+        ),
+
+        # 导航核心
         nav2_launch,
         #rviz_node,
         g1_move_node
