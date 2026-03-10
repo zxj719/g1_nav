@@ -40,8 +40,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            # 可在此添加可执行文件（如果有）
-            # 'g1_nav_node = g1_nav.g1_nav_node:main',
+            'nav2_precheck = g1_nav.nav2_precheck:main',
         ],
     },
 )
