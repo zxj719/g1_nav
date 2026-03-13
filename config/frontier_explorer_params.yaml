@@ -1,0 +1,76 @@
+# =============================================================================
+# Frontier Explorer Parameters
+# =============================================================================
+# BFS frontier-based autonomous explorer inspired by m-explore.
+# Searches outward from robot position, picks nearest frontier with GVD
+# clearance tiebreaking (prefers frontiers in wider corridors).
+#
+# cost = min_distance - clearance_scale * clearance_at_centroid
+#
+# Control:  publish Bool to 'explore/resume' to stop (false) / resume (true)
+# =============================================================================
+
+frontier_explorer:
+  ros__parameters:
+    # How often the planner runs (Hz).
+    # The node also replans immediately on goal completion, so this mainly
+    # controls how quickly it reacts when idle.
+    planner_frequency: 0.2
+
+    # TF frames
+    robot_base_frame: base
+    odom_frame: odom
+    odom_topic: /odom
+    global_frame: map
+    map_topic: /lightning/slam/grid_map
+
+    # TF lookup tolerance (seconds)
+    transform_tolerance: 2.0
+
+    # Minimum number of frontier cells in a cluster to be considered
+    # a valid frontier. Filters noise / tiny gaps.
+    min_frontier_size: 20
+
+    # --- GVD clearance tiebreaker ---
+    # Among roughly equidistant frontiers, prefer those in wider corridors.
+    # A frontier with 1m more clearance gets a (clearance_scale * 1) m
+    # discount on its effective distance.
+    # Set to 0.0 to disable (pure nearest-first).
+    clearance_scale: 0.2
+
+    # If no movement > 0.3 m within this many seconds, cancel goal
+    # and blacklist the frontier.
+    progress_timeout: 30.0
+
+    # Blacklisted frontier expiry time (seconds). After this long the
+    # frontier can be targeted again.
+    blacklist_timeout: 120.0
+
+    # Radius around a blacklisted point (m). Any frontier centroid
+    # within this radius is also considered blacklisted.
+    blacklist_radius: 0.5
+
+    # When true, the robot navigates back to its starting pose after
+    # all frontiers are exhausted.
+    return_to_init: false
+
+    # Publish MarkerArray of frontier centroids to /frontier_markers
+    visualize: true
+
+    # --- GVD (Voronoi Skeleton) ---
+    # Minimum distance-to-obstacle in cells for a GVD point to be valid.
+    # Filters out skeleton branches too close to walls.
+    gvd_min_clearance: 5
+
+    # Maximum search radius (metres) when snapping a frontier goal to the
+    # nearest GVD point.  If no GVD point is found within this radius,
+    # the original frontier centroid is used.
+    gvd_snap_radius: 2.0
+
+    # Publish GVD skeleton as LINE_LIST markers on /explore/gvd
+    visualize_gvd: true
+
+    # Publish/stride controls added in the optimized explorer implementation.
+    # These reduce marker publication load while preserving visualization.
+    gvd_marker_publish_every: 3
+    gvd_marker_stride: 2

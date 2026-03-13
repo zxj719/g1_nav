@@ -102,9 +102,15 @@ controller_server:                                  # 局部规划器服务器
       plugin: "nav2_controller::SimpleGoalChecker"
       xy_goal_tolerance: 0.3
       yaw_goal_tolerance: 1.0
-    # DWB parameters
+    # Rotation shim + DWB parameters
     FollowPath:
-      plugin: "dwb_core::DWBLocalPlanner"
+      plugin: "nav2_rotation_shim_controller::RotationShimController"
+      primary_controller: "dwb_core::DWBLocalPlanner"
+      angular_dist_threshold: 0.35
+      forward_sampling_distance: 0.5
+      rotate_to_heading_angular_vel: 0.8
+      max_angular_accel: 3.2
+      simulate_ahead_time: 1.0
       debug_trajectory_details: True
       min_vel_x: 0.00
       min_vel_y: 0.00

@@ -42,6 +42,7 @@ setup(
         'console_scripts': [
             'nav2_precheck = g1_nav.nav2_precheck:main',
             'tf_to_odom = g1_nav.tf_to_odom:main',
+            'frontier_explorer = g1_nav.frontier_explorer:main',
         ],
     },
 )
