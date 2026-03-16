@@ -5,7 +5,7 @@
 # lifecycle 节点（BT/Planner/Controller/Costmap/Recovery/Smoother/...）。
 #
 # 端到端数据流（工程视角）：
-# - 输入：/tf(map/odom/base)、/odom、/map（来自 SLAM）、/scan（障碍物观测）
+# - 输入：/tf(map/odom/base)、/lightning/odometry、/lightning/grid_map、/scan（障碍物观测）
 # - 目标：NavigateToPose action（/navigate_to_pose）
 # - 输出：/cmd_vel（通常会经过 velocity_smoother 再发出）
 #
@@ -25,13 +25,14 @@
 bt_navigator:
   ros__parameters:
     use_sim_time: false
-    global_frame: odom
+    global_frame: map
     robot_base_frame: base
-    # Compatibility parameter. Runtime pose is expected from TF map->base.
-    odom_topic: /odom
+    # Lightning now publishes odometry directly.
+    odom_topic: /lightning/odometry
     enable_groot_monitoring: True
     groot_zmq_publisher_port: 1666
     groot_zmq_server_port: 1667
+    default_server_timeout: 5000
     default_bt_xml_filename: "navigate_w_replanning_and_recovery.xml"
     plugin_lib_names:
     - nav2_compute_path_to_pose_action_bt_node
@@ -74,13 +75,6 @@ bt_navigator:
     - nav2_controller_selector_bt_node
     - nav2_goal_checker_selector_bt_node
     - nav2_controller_cancel_bt_node
-    - nav2_path_longer_on_approach_bt_node
-    - nav2_wait_cancel_bt_node
-    - nav2_spin_cancel_bt_node
-    - nav2_back_up_cancel_bt_node
-    - nav2_assisted_teleop_cancel_bt_node
-    - nav2_drive_on_heading_cancel_bt_node
-    - nav2_is_battery_charging_condition_bt_node
 
 
 bt_navigator_navigate_through_poses_rclcpp_node:
@@ -99,13 +93,13 @@ bt_navigator_navigate_to_pose_rclcpp_node:
 controller_server:                                  # 局部规划器服务器
   ros__parameters:
     use_sim_time: false
-    global_frame: odom
+    global_frame: map
     # NOTE：若遇到 SLAM 回环后局部控制抖动/TF 超时，可考虑让局部控制工作在 odom，
     # 并确保它与 local_costmap.global_frame（本文件为 odom）一致。
-    controller_frequency: 20.0                      # 分层规划
+    controller_frequency: 15.0                      # 降一点频率，减少控制循环超时抖动
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.2
-    min_theta_velocity_threshold: 0.05
+    min_theta_velocity_threshold: 0.02
     failure_tolerance: 1.0                         # TF变换容忍时间        
     progress_checker_plugin: "progress_checker"
     goal_checker_plugins: ["general_goal_checker"] # "precise_goal_checker"
@@ -127,25 +121,21 @@ controller_server:                                  # 局部规划器服务器
       plugin: "nav2_controller::SimpleGoalChecker"
       xy_goal_tolerance: 0.3
       yaw_goal_tolerance: 1.0
-    # Rotation shim + DWB parameters
+    # Direct DWB path following.
+    # RotationShim kept getting stuck before the robot could enter
+    # the straight-line tracking phase, so we bypass it on G1.
     FollowPath:
-      plugin: "nav2_rotation_shim_controller::RotationShimController"
-      primary_controller: "dwb_core::DWBLocalPlanner"
-      angular_dist_threshold: 0.35
-      forward_sampling_distance: 0.5
-      rotate_to_heading_angular_vel: 0.8
-      max_angular_accel: 3.2
-      simulate_ahead_time: 1.0
+      plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: True
-      min_vel_x: 0.00
+      min_vel_x: 0.05
       min_vel_y: 0.00
       max_vel_x: 0.25
       max_vel_y: 0.2       
-      max_vel_theta: 0.7
-      min_vel_theta: 0.31
-      min_speed_xy: 0.0
+      max_vel_theta: 0.55
+      min_vel_theta: 0.10
+      min_speed_xy: 0.05
       max_speed_xy: 0.3                                          # 最大xy方向速度
-      min_speed_theta: 0.31
+      min_speed_theta: 0.10
       # Add high threshold velocity for turtlebot 3 issue.
       # https://github.com/ROBOTIS-GIT/turtlebot3_simulations/issues/75
       acc_lim_x: 2.5
@@ -167,14 +157,14 @@ controller_server:                                  # 局部规划器服务器
       stateful: True
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       BaseObstacle.scale: 0.02
-      PathAlign.scale: 32.0
-      PathAlign.forward_point_distance: 0.1
-      GoalAlign.scale: 24.0
-      GoalAlign.forward_point_distance: 0.1
-      PathDist.scale: 32.0
-      GoalDist.scale: 24.0
-      RotateToGoal.scale: 32.0
-      RotateToGoal.slowing_factor: 5.0
+      PathAlign.scale: 12.0
+      PathAlign.forward_point_distance: 0.2
+      GoalAlign.scale: 6.0
+      GoalAlign.forward_point_distance: 0.2
+      PathDist.scale: 24.0
+      GoalDist.scale: 10.0
+      RotateToGoal.scale: 1.0
+      RotateToGoal.slowing_factor: 2.0
       RotateToGoal.lookahead_time: -1.0
 
       # # 纯追踪控制器插件
@@ -221,7 +211,7 @@ local_costmap:
       update_frequency: 5.0
       publish_frequency: 5.0
       transform_tolerance: 1.0                         # costmap_2d_ros中的TF变化的容忍值
-      global_frame: odom
+      global_frame: map
       robot_base_frame: base
       use_sim_time: false
       rolling_window: true
@@ -237,7 +227,7 @@ local_costmap:
         plugin: "nav2_costmap_2d::InflationLayer"
         enabled: True
         cost_scaling_factor: 10.0              # 可能会影响路径太长的计算
-        inflation_radius: 0.25                # >= footprint inscribed radius to avoid collision warnings
+        inflation_radius: 0.25                # 至少不小于内切半径，避免贴障警告
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
@@ -277,7 +267,7 @@ local_costmap:
         plugin: "nav2_costmap_2d::StaticLayer"
         enabled: True
         map_subscribe_transient_local: True
-        map_topic: /projected_map
+        map_topic: /lightning/grid_map
       always_send_full_costmap: True
 
 # -----------------------------------------------------------------------------
@@ -290,13 +280,13 @@ global_costmap:
     ros__parameters:
       update_frequency: 5.0
       publish_frequency: 5.0
-      global_frame: odom
+      global_frame: map
       robot_base_frame: base
       use_sim_time: false
       # robot_radius: 0.4                           # 参数不要动
       resolution: 0.05
       footprint: "[[-0.4, -0.15], [0.3, -0.15], [0.3, -0.07], [0.4, -0.07], [0.4, 0.07], [0.3, 0.07], [0.3, 0.15], [-0.4, 0.15]]"  # 与圆形机器人不同
-      footprint_padding: 0.10           # 额外填充距离，避免过度阻塞可行路径
+      footprint_padding: 0.10           # 从 0.40 收回；避免把窄通道在全局代价地图里直接挤没
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
       obstacle_layer:
@@ -317,12 +307,12 @@ global_costmap:
         plugin: "nav2_costmap_2d::StaticLayer"
         enabled: True
         map_subscribe_transient_local: True
-        map_topic: /projected_map
+        map_topic: /lightning/grid_map
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         enabled: True                         # 启用膨胀层
         cost_scaling_factor: 1.5             # 可能会影响路径太长的计算
-        inflation_radius: 0.30               # 降低膨胀半径以提高可行路径概率
+        inflation_radius: 0.25                 # 参数不要动(通常半径0.4,进门半径只能0.25)
       always_send_full_costmap: True
 
 # map_server / amcl：
@@ -438,7 +428,7 @@ behavior_server:
       plugin: "nav2_behaviors/Wait"                       # 等待行为插件
     assisted_teleop:
       plugin: "nav2_behaviors/AssistedTeleop"             # 辅助遥控行为插件
-    global_frame: odom                                  # 全局坐标系名称
+    global_frame: map                                   # 全局坐标系名称
     robot_base_frame: base                              # 机器人基座坐标系名称
     transform_tolerance: 1.0                             # 坐标变换容差(秒)
     use_sim_time: false                                    # 是否使用仿真时间
@@ -460,7 +450,7 @@ recoveries_server:
       plugin: "nav2_recoveries/BackUp"
     wait:
       plugin: "nav2_recoveries/Wait"
-    global_frame: odom
+    global_frame: map
     robot_base_frame: base
     transform_timeout: 0.1
     use_sim_time: false
@@ -493,7 +483,7 @@ waypoint_follower:
 velocity_smoother:
   ros__parameters:
     use_sim_time: false
-    smoothing_frequency: 20.0
+    smoothing_frequency: 50.0
     scale_velocities: False
     # OPEN_LOOP avoids hard dependence on odometry feedback.
     feedback: "OPEN_LOOP"
@@ -504,8 +494,9 @@ velocity_smoother:
     min_velocity: [-0.4, 0.2, -1.0]
     max_accel: [2.5, 0.0, 3.2]
     max_decel: [-2.5, 0.0, -3.2]
-    # Compatibility parameter; OPEN_LOOP mode should not require this topic.
-    odom_topic: /odom
+    # Lightning now publishes odometry directly.
+    odom_topic: /lightning/odometry
     odom_duration: 0.1
-    deadband_velocity: [0.0, 0.0, 0.3]
+    # Keep deadband handling in g1_move to avoid double-threshold stop-go motion.
+    deadband_velocity: [0.0, 0.0, 0.0]
     velocity_timeout: 1.0

@@ -1,9 +1,11 @@
+#!/usr/bin/env python3
+
 """
 nav2_precheck — Nav2 启动前诊断工具
 
 在启动 Nav2 之前运行此节点，检查所有前置条件是否满足：
   - TF 链完整性 (map -> odom -> base)
-  - 必需话题是否存在且有数据 (/scan, /odom, /cmd_vel)
+  - 必需话题是否存在且有数据 (/scan, /lightning/odometry, /cmd_vel)
   - 必需服务/Action Server 是否可用
   - g1_move 双进程状态
 
@@ -49,7 +51,9 @@ class Nav2Precheck(Node):
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('global_frame', 'map')
         self.declare_parameter('scan_topic', '/scan')
-        self.declare_parameter('odom_topic', '/odom')
+        self.declare_parameter('odom_topic', '/lightning/odometry')
+        self.declare_parameter('map_topic', '/lightning/grid_map')
+        self.declare_parameter('map_transient_local', True)
         self.declare_parameter('timeout', 10.0)
 
         self.base_frame = self.get_parameter('robot_base_frame').value
@@ -57,6 +61,9 @@ class Nav2Precheck(Node):
         self.global_frame = self.get_parameter('global_frame').value
         self.scan_topic = self.get_parameter('scan_topic').value
         self.odom_topic = self.get_parameter('odom_topic').value
+        self.map_topic = self.get_parameter('map_topic').value
+        self.map_transient_local = self.get_parameter(
+            'map_transient_local').value
         self.timeout = self.get_parameter('timeout').value
 
         # -------- TF --------
@@ -72,15 +79,18 @@ class Nav2Precheck(Node):
         }
         self.topic_data = {}
 
-        # QoS for map (transient local)
         map_qos = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            durability=(
+                DurabilityPolicy.TRANSIENT_LOCAL
+                if self.map_transient_local
+                else DurabilityPolicy.VOLATILE
+            ),
             depth=1)
 
         self.create_subscription(LaserScan, self.scan_topic, self._scan_cb, 10)
         self.create_subscription(Odometry, self.odom_topic, self._odom_cb, 10)
-        self.create_subscription(OccupancyGrid, '/map', self._map_cb, map_qos)
+        self.create_subscription(OccupancyGrid, self.map_topic, self._map_cb, map_qos)
         self.create_subscription(Twist, '/cmd_vel', self._cmd_vel_cb, 10)
 
         # 等待数据后运行检查
@@ -215,7 +225,7 @@ class Nav2Precheck(Node):
              '2D 激光扫描, local_costmap obstacle_layer 需要'),
             ('odom', self.odom_topic,
              '里程计, bt_navigator / controller_server 需要'),
-            ('map', '/map',
+            ('map', self.map_topic,
              '占据栅格地图, global_costmap 需要 (SLAM 提供)'),
         ]
 

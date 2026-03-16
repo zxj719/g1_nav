@@ -14,18 +14,32 @@ def generate_launch_description():
     pkg_g1_nav = get_package_share_directory('g1_nav')
 
     use_sim_time = LaunchConfiguration('use_sim_time')
+    use_rviz = LaunchConfiguration('use_rviz')
+    rviz_config = LaunchConfiguration('rviz_config')
+    publish_robot_state = LaunchConfiguration('publish_robot_state')
     params_file = LaunchConfiguration('params_file')
     explorer_params_file = LaunchConfiguration('explorer_params_file')
+    explorer_impl = LaunchConfiguration('explorer_impl')
+    enable_map_warmup_spin = LaunchConfiguration('enable_map_warmup_spin')
+    map_warmup_min_live_area_m2 = LaunchConfiguration('map_warmup_min_live_area_m2')
+    map_warmup_angular_speed = LaunchConfiguration('map_warmup_angular_speed')
 
     bringup_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(pkg_g1_nav, 'launch', 'g1_nav2_bringup.launch.py')
+            os.path.join(pkg_g1_nav, 'launch', '2d_g1_nav2_bringup.launch.py')
         ),
         launch_arguments={
             'use_sim_time': use_sim_time,
+            'use_rviz': use_rviz,
+            'rviz_config': rviz_config,
+            'publish_robot_state': publish_robot_state,
             'params_file': params_file,
             'enable_exploration': 'true',
             'explorer_params_file': explorer_params_file,
+            'explorer_impl': explorer_impl,
+            'enable_map_warmup_spin': enable_map_warmup_spin,
+            'map_warmup_min_live_area_m2': map_warmup_min_live_area_m2,
+            'map_warmup_angular_speed': map_warmup_angular_speed,
         }.items(),
     )
 
@@ -34,6 +48,21 @@ def generate_launch_description():
             'use_sim_time',
             default_value='false',
             description='Use simulation clock',
+        ),
+        DeclareLaunchArgument(
+            'use_rviz',
+            default_value='true',
+            description='Launch RViz together with Nav2 and frontier exploration.',
+        ),
+        DeclareLaunchArgument(
+            'rviz_config',
+            default_value=os.path.join(pkg_g1_nav, 'rviz', 'nav2_go2_view.rviz'),
+            description='RViz config file',
+        ),
+        DeclareLaunchArgument(
+            'publish_robot_state',
+            default_value='true',
+            description='Publish robot_description so RViz can show the robot model.',
         ),
         DeclareLaunchArgument(
             'params_file',
@@ -45,6 +74,26 @@ def generate_launch_description():
             default_value=os.path.join(
                 pkg_g1_nav, 'config', 'frontier_explorer_params.yaml'),
             description='Frontier explorer parameters file',
+        ),
+        DeclareLaunchArgument(
+            'explorer_impl',
+            default_value='cpp',
+            description='Explorer implementation: cpp or python',
+        ),
+        DeclareLaunchArgument(
+            'enable_map_warmup_spin',
+            default_value='true',
+            description='Rotate in place until the first live SLAM map grows to a usable size.',
+        ),
+        DeclareLaunchArgument(
+            'map_warmup_min_live_area_m2',
+            default_value='12.0',
+            description='Minimum live /map area before exploration resumes.',
+        ),
+        DeclareLaunchArgument(
+            'map_warmup_angular_speed',
+            default_value='0.45',
+            description='Angular speed used while warming up the live SLAM map.',
         ),
         bringup_launch,
     ])

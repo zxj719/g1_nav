@@ -20,9 +20,9 @@ frontier_explorer:
     # TF frames
     robot_base_frame: base
     odom_frame: odom
-    odom_topic: /odom
+    odom_topic: /lightning/odometry
     global_frame: map
-    map_topic: /lightning/slam/grid_map
+    map_topic: /lightning/grid_map
 
     # TF lookup tolerance (seconds)
     transform_tolerance: 2.0

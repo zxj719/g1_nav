@@ -3,31 +3,34 @@
 <package format="3">
   <name>g1_nav</name>
   <version>0.0.0</version>
-  <description>nav method can used in g1</description>
+  <description>Navigation package for Unitree G1 robot</description>
   <maintainer email="luoyifan902008@126.com">FLYivan</maintainer>
   <license>Apache-2.0</license>
-  <depend>tf2_ros</depend>
-  <depend>tf_transformations </depend>
 
-  <depend>rclpy</depend>
-  <depend>geometry_msgs</depend>  
-  <depend>nav_msgs</depend>  
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <depend>geometry_msgs</depend>
   <depend>nav2_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>tf2_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf_transformations</depend>
   <depend>visualization_msgs</depend>
-  <depend>subprocess</depend>
-  
-
-  <depend>numpy</depend>
 
   <depend>unitree_go</depend>
   <depend>unitree_api</depend>
   <depend>unitree_interfaces</depend>
-  <depend>custom_interface</depend> 
+  <depend>custom_interface</depend>
   <depend>go2_sport</depend>
 
+  <exec_depend>nav2_rotation_shim_controller</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-scipy</exec_depend>
   <exec_depend>sshpass</exec_depend>
 
@@ -37,6 +40,6 @@
   <test_depend>python3-pytest</test_depend>
 
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>

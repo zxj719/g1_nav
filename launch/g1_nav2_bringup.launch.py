@@ -8,10 +8,10 @@ import os
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
@@ -23,6 +23,7 @@ def generate_launch_description():
     params_file = LaunchConfiguration('params_file')
     enable_exploration = LaunchConfiguration('enable_exploration')
     explorer_params_file = LaunchConfiguration('explorer_params_file')
+    explorer_impl = LaunchConfiguration('explorer_impl')
 
     nav2_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -70,16 +71,36 @@ def generate_launch_description():
         ])
     )
 
-    frontier_explorer_node = Node(
-        package='g1_nav',
-        executable='frontier_explorer',
-        name='frontier_explorer',
-        output='screen',
-        parameters=[
-            explorer_params_file,
-            {'use_sim_time': use_sim_time},
+    frontier_explorer = TimerAction(
+        period=5.0,
+        actions=[
+            Node(
+                package='g1_nav',
+                executable='frontier_explorer.py',
+                name='frontier_explorer',
+                output='screen',
+                parameters=[explorer_params_file, {'use_sim_time': use_sim_time}],
+                condition=IfCondition(
+                    PythonExpression([
+                        '"', enable_exploration, '" == "true" and "',
+                        explorer_impl, '" == "python"'
+                    ])
+                ),
+            ),
+            Node(
+                package='g1_nav',
+                executable='frontier_explorer_cpp',
+                name='frontier_explorer',
+                output='screen',
+                parameters=[explorer_params_file, {'use_sim_time': use_sim_time}],
+                condition=IfCondition(
+                    PythonExpression([
+                        '"', enable_exploration, '" == "true" and "',
+                        explorer_impl, '" == "cpp"'
+                    ])
+                ),
+            ),
         ],
-        condition=IfCondition(enable_exploration),
     )
 
     rviz_node = Node(
@@ -120,13 +141,18 @@ def generate_launch_description():
                 pkg_g1_nav, 'config', 'frontier_explorer_params.yaml'),
             description='Frontier explorer parameters file',
         ),
-        # launch_urdf,
-        # launch_livox,
-        # livox_converter_node,
-        # launch_octomap,
-        # launch_cloud2scan,
+        DeclareLaunchArgument(
+            'explorer_impl',
+            default_value='cpp',
+            description='Explorer implementation: cpp or python',
+        ),
+        launch_urdf,
+        launch_livox,
+        livox_converter_node,
+        launch_octomap,
+        launch_cloud2scan,
         nav2_launch,
-        frontier_explorer_node,
+        frontier_explorer,
         rviz_node,
         g1_move_node,
     ])
