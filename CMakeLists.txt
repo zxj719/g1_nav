@@ -14,8 +14,14 @@ find_package(visualization_msgs REQUIRED)
 
 ament_python_install_package(${PROJECT_NAME})
 
-add_executable(frontier_explorer_cpp src/frontier_explorer.cpp)
+add_executable(
+  frontier_explorer_cpp
+  src/frontier_explorer.cpp
+  src/frontier_search.cpp
+  src/gvd_map.cpp
+)
 target_compile_features(frontier_explorer_cpp PUBLIC cxx_std_17)
+target_include_directories(frontier_explorer_cpp PUBLIC include)
 ament_target_dependencies(
   frontier_explorer_cpp
   geometry_msgs
@@ -30,6 +36,7 @@ ament_target_dependencies(
 
 install(DIRECTORY
   config
+  include
   launch
   rviz
   semantic
