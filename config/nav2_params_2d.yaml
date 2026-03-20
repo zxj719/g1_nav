@@ -29,11 +29,18 @@ bt_navigator:
     robot_base_frame: base
     # Lightning now publishes odometry directly.
     odom_topic: /lightning/odometry
+    # The default 10 ms tree loop (100 Hz) was regularly overrunning while the
+    # live SLAM map was expanding, which caused repeated tick-rate warnings and
+    # visible stop-go motion.
+    bt_loop_duration: 50
     enable_groot_monitoring: True
     groot_zmq_publisher_port: 1666
     groot_zmq_server_port: 1667
     default_server_timeout: 5000
-    default_bt_xml_filename: "navigate_w_replanning_and_recovery.xml"
+    # Rewritten by launch to absolute paths inside this package.
+    default_bt_xml_filename: "navigate_to_pose_w_g1_embedded_recovery.xml"
+    default_nav_to_pose_bt_xml: "navigate_to_pose_w_g1_embedded_recovery.xml"
+    default_nav_through_poses_bt_xml: "navigate_through_poses_w_g1_embedded_recovery.xml"
     plugin_lib_names:
     - nav2_compute_path_to_pose_action_bt_node
     - nav2_compute_path_through_poses_action_bt_node
@@ -65,6 +72,7 @@ bt_navigator:
     - nav2_time_expired_condition_bt_node
     - nav2_path_expiring_timer_condition
     - nav2_distance_traveled_condition_bt_node
+    - g1_robot_embedded_in_obstacle_condition_bt_node
     - nav2_single_trigger_bt_node
     - nav2_goal_updated_controller_bt_node
     - nav2_is_battery_low_condition_bt_node
@@ -93,12 +101,12 @@ bt_navigator_navigate_to_pose_rclcpp_node:
 controller_server:                                  # 局部规划器服务器
   ros__parameters:
     use_sim_time: false
-    global_frame: map
+    global_frame: odom
     # NOTE：若遇到 SLAM 回环后局部控制抖动/TF 超时，可考虑让局部控制工作在 odom，
     # 并确保它与 local_costmap.global_frame（本文件为 odom）一致。
     controller_frequency: 15.0                      # 降一点频率，减少控制循环超时抖动
     min_x_velocity_threshold: 0.001
-    min_y_velocity_threshold: 0.2
+    min_y_velocity_threshold: 0.0
     min_theta_velocity_threshold: 0.02
     failure_tolerance: 1.0                         # TF变换容忍时间        
     progress_checker_plugin: "progress_checker"
@@ -108,8 +116,12 @@ controller_server:                                  # 局部规划器服务器
     # Progress checker parameters
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.3  # 从0.5减少到0.3米，允许更小的移动即视为有进展
-      movement_time_allowance: 10.0   # 从5.0增加到10秒，给更多时间尝试
+      # G1 often spends its first several seconds rotating onto the path before
+      # it can build meaningful forward displacement, so keep Nav2 from
+      # aborting too early and let frontier_explorer's higher-level stuck logic
+      # decide when we are truly not making progress.
+      required_movement_radius: 0.15
+      movement_time_allowance: 20.0
     # Goal checker parameters
     #precise_goal_checker:
     #  plugin: "nav2_controller::SimpleGoalChecker"
@@ -127,13 +139,16 @@ controller_server:                                  # 局部规划器服务器
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: True
-      min_vel_x: 0.05
+      # Keep normal path tracking forward-only.
+      # Reverse motion is reserved for BT recovery BackUp actions, while
+      # min_speed_xy stays at 0.0 so DWB can still rotate in place near goal.
+      min_vel_x: 0.0
       min_vel_y: 0.00
       max_vel_x: 0.25
       max_vel_y: 0.2       
       max_vel_theta: 0.55
       min_vel_theta: 0.10
-      min_speed_xy: 0.05
+      min_speed_xy: 0.0
       max_speed_xy: 0.3                                          # 最大xy方向速度
       min_speed_theta: 0.10
       # Add high threshold velocity for turtlebot 3 issue.
@@ -211,7 +226,7 @@ local_costmap:
       update_frequency: 5.0
       publish_frequency: 5.0
       transform_tolerance: 1.0                         # costmap_2d_ros中的TF变化的容忍值
-      global_frame: map
+      global_frame: odom
       robot_base_frame: base
       use_sim_time: false
       rolling_window: true
@@ -222,27 +237,15 @@ local_costmap:
       footprint_padding: 0.05                      # 局部规划中使用较大值
       # robot_radius: 0.4                         # 参数不要动（通常半径0.4,进门半径只能0.2）
       # plugins: ["voxel_layer", "inflation_layer"]
-      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]          # 2d建图，不使用体素层
+      # Temporarily run the local costmap without /scan while we debug the
+      # core exploration / motion chain. This keeps Nav2 from depending on
+      # the pointcloud_to_laserscan bridge.
+      plugins: ["inflation_layer"]          # 2d建图，不使用体素层
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         enabled: True
         cost_scaling_factor: 10.0              # 可能会影响路径太长的计算
         inflation_radius: 0.25                # 至少不小于内切半径，避免贴障警告
-      obstacle_layer:
-        plugin: "nav2_costmap_2d::ObstacleLayer"
-        enabled: True
-        observation_sources: scan
-        scan:
-          topic: /scan
-          max_obstacle_height: 2.0      # 障碍物最大高度(米)，应大于机器人高度，室内建议2-3米，室外可设置更高
-          clearing: True                # 是否清除探测范围内的障碍物，通常设为True以保证动态避障，特殊场景可设为False
-          marking: True                 # 是否标记探测到的障碍物，通常设为True以实现避障，特殊场景可设为False
-          data_type: "LaserScan"        # 传感器数据类型，支持"LaserScan"和"PointCloud2"，根据实际传感器选择
-          raytrace_max_range: 4.0       # 射线追踪最大范围(米)，应略大于obstacle_max_range，建议为雷达量程的0.9-1.2倍
-          raytrace_min_range: 0.3       # 射线追踪最小范围(米)，通常为0，存在近距离盲区时可适当增大，取值范围0-1米
-          obstacle_max_range: 3.5       # 障碍物探测最大范围(米)，建议为雷达量程的0.8-1.0倍，室内建议2-3米，室外可更大
-          obstacle_min_range: 0.25      # 障碍物探测最小范围(米)，通常为0，雷达存在盲区时可适当增大，取值范围0-1米，路由器问题解决 (路由器盒子距离0.25)
-
       # voxel_layer:
       #   plugin: "nav2_costmap_2d::VoxelLayer"
       #   enabled: True
@@ -288,21 +291,7 @@ global_costmap:
       footprint: "[[-0.4, -0.15], [0.3, -0.15], [0.3, -0.07], [0.4, -0.07], [0.4, 0.07], [0.3, 0.07], [0.3, 0.15], [-0.4, 0.15]]"  # 与圆形机器人不同
       footprint_padding: 0.10           # 从 0.40 收回；避免把窄通道在全局代价地图里直接挤没
       track_unknown_space: true
-      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
-      obstacle_layer:
-        plugin: "nav2_costmap_2d::ObstacleLayer"
-        enabled: True
-        observation_sources: scan
-        scan:
-          topic: /scan
-          max_obstacle_height: 2.0      # 障碍物最大高度(米)，应大于机器人高度，室内建议2-3米，室外可设置更高
-          clearing: True                # 是否清除探测范围内的障碍物，通常设为True以保证动态避障，特殊场景可设为False
-          marking: True                 # 是否标记探测到的障碍物，通常设为True以实现避障，特殊场景可设为False
-          data_type: "LaserScan"        # 传感器数据类型，支持"LaserScan"和"PointCloud2"，根据实际传感器选择
-          raytrace_max_range: 4.0       # 室外可以设置较大，用于构建完整环境地图，射线追踪最大范围(米)，应略大于obstacle_max_range，建议为雷达量程的0.9-1.2倍
-          raytrace_min_range: 0.3       # 射线追踪最小范围(米)，通常为0，存在近距离盲区时可适当增大，取值范围0-1米
-          obstacle_max_range: 3.5       # 室外可以设置较大，用于构建完整环境地图，障碍物探测最大范围(米)，建议为雷达量程的0.8-1.0倍，室内建议2-3米，室外可更大
-          obstacle_min_range: 0.25      # 障碍物探测最小范围(米)，通常为0，雷达存在盲区时可适当增大，取值范围0-1米，路由器问题解决 (路由器盒子距离0.25)
+      plugins: ["static_layer", "inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         enabled: True
@@ -359,7 +348,9 @@ planner_server:                              # 全局规划器服务器
       # - allow_unknown / track_unknown_space 是否导致穿越未知区？
       downsample_costmap: false           # 是否对代价地图进行降采样,复杂环境建议false,简单环境可设为true以提高性能
       downsampling_factor: 1              # 代价地图降采样因子,仅当downsample_costmap为true时有效,取值范围1-4,值越大精度越低但速度越快
-      tolerance: 0.25                      # 到达目标点的距离容差(米),取值范围0.1-1.0,开阔环境可设大些,狭窄环境需设小些
+      # Frontier centroids may sit close to the expanding live-map boundary;
+      # let Navfn accept a nearby reachable cell instead of aborting outright.
+      tolerance: 0.5
       allow_unknown: true                 # 是否允许规划穿过未知区域,未知区域多时建议true,已知环境可设为false
       max_iterations: 1000000             # 路径搜索最大迭代次数,取值范围10000-2000000,复杂环境需要更大的迭代次数
       max_planning_time: 20.0             # 路径规划最大允许时间(秒),取值范围1.0-30.0,根据实时性要求设置
@@ -489,9 +480,7 @@ velocity_smoother:
     feedback: "OPEN_LOOP"
     # feedback: "CLOSED_LOOP"
     max_velocity: [0.4, 0.2, 1.0]
-    # NOTE：当前 min_velocity 的 y 分量为 0.2（与 max_velocity y=0.2 相同）。
-    # 这会强约束 y 速度范围为常数 0.2，通常不符合预期；若不使用 y 向运动建议设为 0。
-    min_velocity: [-0.4, 0.2, -1.0]
+    min_velocity: [-0.4, 0.0, -1.0]
     max_accel: [2.5, 0.0, 3.2]
     max_decel: [-2.5, 0.0, -3.2]
     # Lightning now publishes odometry directly.

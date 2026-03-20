@@ -29,29 +29,20 @@ frontier_explorer:
 
     # Minimum number of frontier cells in a cluster to be considered
     # a valid frontier. Filters noise / tiny gaps.
-    min_frontier_size: 20
-
-    # Kept for backward compatibility. Frontier selection is now pure
-    # nearest-first by Euclidean heuristic distance, so this value is ignored.
-    clearance_scale: 0.2
+    min_frontier_size: 35
 
     # Only refresh frontier candidates that are near the robot. This keeps
     # frontier updates local while a locked frontier target stays unchanged.
     # Set <= 0 to disable the distance gate.
     frontier_update_radius: 0.0
 
-    # If no movement > 0.3 m within this many seconds during navigation,
-    # treat it as stuck. The explorer first tries to recover back to a GVD
-    # point, then replans toward the locked frontier.
+    # If no movement is detected within this many seconds during navigation,
+    # cancel the current goal and blacklist that frontier.
     progress_timeout: 30.0
 
     # Blacklisted frontier expiry time (seconds). After this long the
     # frontier can be targeted again.
-    blacklist_timeout: 120.0
-
-    # Do not give up on a frontier after the first missing-anchor / missing-path
-    # result. Only blacklist it after this many consecutive GVD planning failures.
-    frontier_plan_retry_limit: 3
+    blacklist_timeout: 40.0
 
     # Radius around a blacklisted point (m). Any frontier centroid
     # within this radius is also considered blacklisted.
@@ -64,96 +55,5 @@ frontier_explorer:
     # Publish MarkerArray of frontier centroids to /frontier_markers
     visualize: true
 
-    # --- GVD (Voronoi Skeleton) ---
-    # Minimum distance-to-obstacle in cells for a GVD point to be valid.
-    # Filters out skeleton branches too close to walls.
-    gvd_min_clearance: 5
-
-    # Maximum search radius (metres) when snapping a frontier goal to the
-    # nearest GVD point.  If no GVD point is found within this radius,
-    # the original frontier centroid is used.
-    gvd_snap_radius: 2.0
-
-    # Accept slightly larger equal-distance error and a looser site-direction
-    # test so more free cells can qualify as GVD cells on a discrete grid.
-    gvd_distance_tolerance_cells: 5.0
-    gvd_max_site_direction_dot: 0.7
-
-    # Keep the robot on the GVD "railway". When false, a frontier is only
-    # accepted if there is a continuous on-skeleton GVD path to its snapped
-    # anchor. When true, the planner may bridge disconnected skeleton pieces
-    # through free space.
-    allow_gvd_bridge: false
-
-    # If no usable GVD route remains for the current frontier set, allow a
-    # direct Nav2 goal to the frontier as long as the free-space path still
-    # keeps enough obstacle clearance.
-    allow_safe_direct_frontier_nav: true
-    direct_frontier_min_clearance_cells: 6.0
-
-    # Reserved compatibility knobs from the earlier heuristic GVD-chain
-    # fallback. The planner now prefers either a same-component GVD route or
-    # a direct hop to an entry point on the target-side GVD component.
-    gvd_heuristic_chain_sample_step: 0.4
-    gvd_heuristic_chain_max_offset: 5.0
-
-    # Publish GVD skeleton as LINE_LIST markers on /explore/gvd
-    visualize_gvd: true
-
-    # Publish/stride controls added in the optimized explorer implementation.
-    # These reduce marker publication load while preserving visualization.
-    gvd_marker_publish_every: 3
-    gvd_marker_stride: 2
-
-    # Subsample the raw GVD path using original GVD points only. Smaller
-    # spacing keeps more sequential NavigateThroughPoses targets on the
-    # skeleton instead of skipping over long gaps.
-    gvd_waypoint_spacing: 0.6
-
-    # Kept for compatibility. GVD navigation targets are no longer smoothed
-    # so every dispatched waypoint stays on an original GVD point.
-    gvd_waypoint_smoothing_passes: 0
-
-    # Baseline length for one dispatched GVD segment. The explorer now adapts
-    # this online: if the GVD route looks stable it can expand all the way to
-    # the current GVD endpoint, and if feedback looks jerky it shrinks toward
-    # the minimum below.
-    gvd_segment_length: 3.0
-    gvd_segment_length_min: 0.4
-    gvd_segment_length_max: 6.0
-
-    # If Nav2 feedback keeps moving without making enough goal progress for
-    # several consecutive samples, treat that as a jerky GVD-following phase
-    # and force the next replan to use a shorter segment.
-    gvd_jerk_feedback_threshold: 5
-    gvd_jerk_progress_epsilon: 0.03
-    gvd_jerk_replan_cooldown: 2.0
-
-    # If the robot gets stuck while following a GVD segment, first try to
-    # recover to a point on the active GVD segment. If that is unavailable,
-    # fall back to the nearest reachable GVD point within this radius, then
-    # replan toward the same locked frontier.
-    stuck_recovery_gvd_radius: 3.0
-
-    # While navigating to a selected frontier, watch for map / pose changes
-    # that would normally refresh the GVD route, but do not cancel the active
-    # NavigateThroughPoses segment. Instead, apply the newest GVD update after
-    # the current segment finishes, while keeping the same locked frontier.
-    replan_while_navigating: true
-
-    # Minimum time between two in-motion checks for whether a deferred GVD
-    # refresh should be recorded.
-    gvd_replan_interval: 3.0
-
-    # Do not record a deferred GVD refresh if the robot is already very close
-    # to the current segment goal.
-    gvd_replan_min_remaining_distance: 0.8
-
-    # If the robot has already crossed beyond the last waypoint of the active
-    # GVD segment, do not force it to flip around and touch that old waypoint.
-    # Only allow this when the robot is already close to that segment goal;
-    # this avoids false positives when the robot merely lies in the same
-    # half-space as the segment tail but is still far away.
-    gvd_goal_pass_max_goal_distance: 0.45
-    gvd_goal_pass_projection_margin: 0.08
-    gvd_goal_pass_lateral_tolerance: 0.35
+    # Search this far around the frontier centroid for a nearby free goal cell.
+    direct_frontier_goal_search_radius: 2.0

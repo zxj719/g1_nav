@@ -3,13 +3,19 @@ project(g1_nav)
 
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
+find_package(behaviortree_cpp_v3 REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav2_behavior_tree REQUIRED)
+find_package(nav2_costmap_2d REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
 find_package(visualization_msgs REQUIRED)
 
 ament_python_install_package(${PROJECT_NAME})
@@ -18,7 +24,6 @@ add_executable(
   frontier_explorer_cpp
   src/frontier_explorer.cpp
   src/frontier_search.cpp
-  src/gvd_map.cpp
 )
 target_compile_features(frontier_explorer_cpp PUBLIC cxx_std_17)
 target_include_directories(frontier_explorer_cpp PUBLIC include)
@@ -34,37 +39,44 @@ ament_target_dependencies(
   visualization_msgs
 )
 
+add_library(g1_robot_embedded_in_obstacle_condition_bt_node SHARED
+  src/robot_embedded_in_obstacle_condition.cpp
+)
+target_compile_features(g1_robot_embedded_in_obstacle_condition_bt_node PUBLIC cxx_std_17)
+target_compile_definitions(
+  g1_robot_embedded_in_obstacle_condition_bt_node
+  PRIVATE BT_PLUGIN_EXPORT
+)
+target_include_directories(
+  g1_robot_embedded_in_obstacle_condition_bt_node
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+ament_target_dependencies(
+  g1_robot_embedded_in_obstacle_condition_bt_node
+  behaviortree_cpp_v3
+  geometry_msgs
+  nav2_behavior_tree
+  nav2_costmap_2d
+  nav2_msgs
+  rclcpp
+  tf2
+  tf2_geometry_msgs
+  tf2_ros
+)
+
 install(DIRECTORY
+  behavior_trees
   config
-  include
   launch
   rviz
-  semantic
   DESTINATION share/${PROJECT_NAME}
 )
 
-install(PROGRAMS
-  g1_nav/frontier_explorer.py
-  DESTINATION lib/${PROJECT_NAME}
-  RENAME frontier_explorer.py
-)
-
-install(PROGRAMS
-  g1_nav/nav2_precheck.py
-  DESTINATION lib/${PROJECT_NAME}
-  RENAME nav2_precheck
-)
-
-install(PROGRAMS
-  g1_nav/tf_to_odom.py
-  DESTINATION lib/${PROJECT_NAME}
-  RENAME tf_to_odom
-)
-
-install(PROGRAMS
-  g1_nav/map_cache_bridge.py
-  DESTINATION lib/${PROJECT_NAME}
-  RENAME map_cache_bridge
+install(DIRECTORY
+  include/
+  DESTINATION include
 )
 
 install(PROGRAMS
@@ -76,6 +88,13 @@ install(PROGRAMS
 install(TARGETS
   frontier_explorer_cpp
   DESTINATION lib/${PROJECT_NAME}
+)
+
+install(TARGETS
+  g1_robot_embedded_in_obstacle_condition_bt_node
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION lib
 )
 
 ament_package()

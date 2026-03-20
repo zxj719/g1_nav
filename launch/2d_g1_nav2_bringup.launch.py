@@ -8,8 +8,9 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from nav2_common.launch import RewrittenYaml
 
 
 def generate_launch_description():
@@ -24,10 +25,23 @@ def generate_launch_description():
     params_file = LaunchConfiguration('params_file')
     enable_exploration = LaunchConfiguration('enable_exploration')
     explorer_params_file = LaunchConfiguration('explorer_params_file')
-    explorer_impl = LaunchConfiguration('explorer_impl')
+    enable_scan_bridge = LaunchConfiguration('enable_scan_bridge')
     enable_map_warmup_spin = LaunchConfiguration('enable_map_warmup_spin')
     map_warmup_min_live_area_m2 = LaunchConfiguration('map_warmup_min_live_area_m2')
     map_warmup_angular_speed = LaunchConfiguration('map_warmup_angular_speed')
+    nav_to_pose_bt_xml = os.path.join(
+        pkg_g1_nav, 'behavior_trees', 'navigate_to_pose_w_g1_embedded_recovery.xml')
+    nav_through_poses_bt_xml = os.path.join(
+        pkg_g1_nav, 'behavior_trees', 'navigate_through_poses_w_g1_embedded_recovery.xml')
+    configured_nav2_params = RewrittenYaml(
+        source_file=params_file,
+        param_rewrites={
+            'default_bt_xml_filename': nav_to_pose_bt_xml,
+            'default_nav_to_pose_bt_xml': nav_to_pose_bt_xml,
+            'default_nav_through_poses_bt_xml': nav_through_poses_bt_xml,
+        },
+        convert_types=True,
+    )
 
     nav2_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -35,7 +49,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'use_sim_time': use_sim_time,
-            'params_file': params_file,
+            'params_file': configured_nav2_params,
             'autostart': 'true',
         }.items(),
     )
@@ -45,6 +59,14 @@ def generate_launch_description():
             os.path.join(pkg_g1_sim, 'launch', 'g1_urdf2tf.launch.py')
         ),
         condition=IfCondition(publish_robot_state),
+    )
+
+    base_alias_tf_node = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='base_to_base_link_alias',
+        arguments=['0', '0', '0', '0', '0', '0', 'base', 'base_link'],
+        output='screen',
     )
 
     pointcloud_to_scan_node = Node(
@@ -69,6 +91,7 @@ def generate_launch_description():
             'range_max': 12.0,
             'use_inf': True,
         }],
+        condition=IfCondition(enable_scan_bridge),
     )
 
     map_warmup_spin_node = Node(
@@ -92,29 +115,11 @@ def generate_launch_description():
         actions=[
             Node(
                 package='g1_nav',
-                executable='frontier_explorer.py',
-                name='frontier_explorer',
-                output='screen',
-                parameters=[explorer_params_file, {'use_sim_time': use_sim_time}],
-                condition=IfCondition(
-                    PythonExpression([
-                        '"', enable_exploration, '" == "true" and "',
-                        explorer_impl, '" == "python"'
-                    ])
-                ),
-            ),
-            Node(
-                package='g1_nav',
                 executable='frontier_explorer_cpp',
                 name='frontier_explorer',
                 output='screen',
                 parameters=[explorer_params_file, {'use_sim_time': use_sim_time}],
-                condition=IfCondition(
-                    PythonExpression([
-                        '"', enable_exploration, '" == "true" and "',
-                        explorer_impl, '" == "cpp"'
-                    ])
-                ),
+                condition=IfCondition(enable_exploration),
             ),
         ],
     )
@@ -174,9 +179,9 @@ def generate_launch_description():
             description='Frontier explorer parameters file',
         ),
         DeclareLaunchArgument(
-            'explorer_impl',
-            default_value='cpp',
-            description='Explorer implementation: cpp or python',
+            'enable_scan_bridge',
+            default_value='false',
+            description='Launch pointcloud_to_laserscan to publish /scan.',
         ),
         DeclareLaunchArgument(
             'enable_map_warmup_spin',
@@ -194,6 +199,7 @@ def generate_launch_description():
             description='Angular speed used while warming up the live SLAM map.',
         ),
         robot_state_launch,
+        base_alias_tf_node,
         pointcloud_to_scan_node,
         nav2_launch,
         map_warmup_spin_node,

@@ -19,7 +19,7 @@ def generate_launch_description():
     publish_robot_state = LaunchConfiguration('publish_robot_state')
     params_file = LaunchConfiguration('params_file')
     explorer_params_file = LaunchConfiguration('explorer_params_file')
-    explorer_impl = LaunchConfiguration('explorer_impl')
+    enable_scan_bridge = LaunchConfiguration('enable_scan_bridge')
     enable_map_warmup_spin = LaunchConfiguration('enable_map_warmup_spin')
     map_warmup_min_live_area_m2 = LaunchConfiguration('map_warmup_min_live_area_m2')
     map_warmup_angular_speed = LaunchConfiguration('map_warmup_angular_speed')
@@ -36,7 +36,7 @@ def generate_launch_description():
             'params_file': params_file,
             'enable_exploration': 'true',
             'explorer_params_file': explorer_params_file,
-            'explorer_impl': explorer_impl,
+            'enable_scan_bridge': enable_scan_bridge,
             'enable_map_warmup_spin': enable_map_warmup_spin,
             'map_warmup_min_live_area_m2': map_warmup_min_live_area_m2,
             'map_warmup_angular_speed': map_warmup_angular_speed,
@@ -76,13 +76,13 @@ def generate_launch_description():
             description='Frontier explorer parameters file',
         ),
         DeclareLaunchArgument(
-            'explorer_impl',
-            default_value='cpp',
-            description='Explorer implementation: cpp or python',
+            'enable_scan_bridge',
+            default_value='false',
+            description='Launch pointcloud_to_laserscan to publish /scan.',
         ),
         DeclareLaunchArgument(
             'enable_map_warmup_spin',
-            default_value='true',
+            default_value='false',
             description='Rotate in place until the first live SLAM map grows to a usable size.',
         ),
         DeclareLaunchArgument(
