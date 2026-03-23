@@ -29,10 +29,8 @@ def generate_launch_description():
     enable_map_warmup_spin = LaunchConfiguration('enable_map_warmup_spin')
     map_warmup_min_live_area_m2 = LaunchConfiguration('map_warmup_min_live_area_m2')
     map_warmup_angular_speed = LaunchConfiguration('map_warmup_angular_speed')
-    nav_to_pose_bt_xml = os.path.join(
-        pkg_g1_nav, 'behavior_trees', 'navigate_to_pose_w_g1_embedded_recovery.xml')
-    nav_through_poses_bt_xml = os.path.join(
-        pkg_g1_nav, 'behavior_trees', 'navigate_through_poses_w_g1_embedded_recovery.xml')
+    nav_to_pose_bt_xml = LaunchConfiguration('nav_to_pose_bt_xml')
+    nav_through_poses_bt_xml = LaunchConfiguration('nav_through_poses_bt_xml')
     configured_nav2_params = RewrittenYaml(
         source_file=params_file,
         param_rewrites={
@@ -166,6 +164,20 @@ def generate_launch_description():
             'params_file',
             default_value=os.path.join(pkg_g1_nav, 'config', 'nav2_params_2d.yaml'),
             description='Nav2 parameters file',
+        ),
+        DeclareLaunchArgument(
+            'nav_to_pose_bt_xml',
+            default_value=os.path.join(
+                pkg_g1_nav, 'behavior_trees',
+                'navigate_to_pose_w_g1_embedded_recovery.xml'),
+            description='Behavior tree XML used by bt_navigator for NavigateToPose.',
+        ),
+        DeclareLaunchArgument(
+            'nav_through_poses_bt_xml',
+            default_value=os.path.join(
+                pkg_g1_nav, 'behavior_trees',
+                'navigate_through_poses_w_g1_embedded_recovery.xml'),
+            description='Behavior tree XML used by bt_navigator for NavigateThroughPoses.',
         ),
         DeclareLaunchArgument(
             'enable_exploration',

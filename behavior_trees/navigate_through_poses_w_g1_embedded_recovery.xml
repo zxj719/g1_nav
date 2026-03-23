@@ -16,21 +16,24 @@
               lethal_cost_threshold="254"
               transform_tolerance="0.2"/>
           </Inverter>
-          <RoundRobin name="EmbeddedRecoveryStages">
-            <Sequence name="EmbeddedRecoveryLevel1">
-              <Wait wait_duration="1.5"/>
-              <ClearEntireCostmap
-                name="EmbeddedClearLocalCostmap-Level1"
-                service_name="local_costmap/clear_entirely_local_costmap"/>
-            </Sequence>
-            <Sequence name="EmbeddedRecoveryLevel2">
-              <Wait wait_duration="0.8"/>
-              <BackUp backup_dist="0.35" backup_speed="0.25" time_allowance="3.0"/>
-              <ClearEntireCostmap
-                name="EmbeddedClearLocalCostmap-Level2"
-                service_name="local_costmap/clear_entirely_local_costmap"/>
-            </Sequence>
-          </RoundRobin>
+          <ReactiveFallback name="EmbeddedRecoveryFallback">
+            <GoalUpdated/>
+            <RoundRobin name="EmbeddedRecoveryStages">
+              <Sequence name="EmbeddedRecoveryLevel1">
+                <Wait wait_duration="1.5"/>
+                <ClearEntireCostmap
+                  name="EmbeddedClearLocalCostmap-Level1"
+                  service_name="local_costmap/clear_entirely_local_costmap"/>
+              </Sequence>
+              <Sequence name="EmbeddedRecoveryLevel2">
+                <Wait wait_duration="0.8"/>
+                <BackUp backup_dist="0.35" backup_speed="0.25" time_allowance="3.0"/>
+                <ClearEntireCostmap
+                  name="EmbeddedClearLocalCostmap-Level2"
+                  service_name="local_costmap/clear_entirely_local_costmap"/>
+              </Sequence>
+            </RoundRobin>
+          </ReactiveFallback>
         </RecoveryNode>
         <!-- Keep Nav2's internal replan rate very low so a growing SLAM map
              does not repeatedly invalidate the same in-flight path segment. -->

@@ -2,8 +2,9 @@
 # Frontier Explorer Parameters
 # =============================================================================
 # BFS frontier-based autonomous explorer inspired by m-explore.
-# Searches outward from robot position and selects the nearest frontier
-# using Euclidean heuristic distance to the frontier centroid.
+# Searches outward from robot position and selects the nearest frontier.
+# The final navigation target is snapped onto the nearest free cell around
+# the frontier before sending NavigateToPose.
 #
 # Control:  publish Bool to 'explore/resume' to stop (false) / resume (true)
 # =============================================================================
@@ -52,8 +53,12 @@ frontier_explorer:
     # all frontiers are exhausted.
     return_to_init: false
 
-    # Publish MarkerArray of frontier centroids to /frontier_markers
+    # Publish MarkerArray of snapped frontier navigation targets to /frontier_markers
     visualize: true
 
-    # Search this far around the frontier centroid for a nearby free goal cell.
+    # Search this far around the frontier centroid for the nearest free goal cell.
     direct_frontier_goal_search_radius: 2.0
+
+    # Minimum distance change (m) before a new frontier / navigation goal
+    # preempts the current NavigateToPose task.
+    goal_update_min_distance: 0.4

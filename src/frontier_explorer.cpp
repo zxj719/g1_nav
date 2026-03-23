@@ -43,6 +43,14 @@ struct CompletedPoint
   double y{0.0};
 };
 
+struct PendingNavigationGoal
+{
+  double x{0.0};
+  double y{0.0};
+  std::optional<double> yaw;
+  bool returning_to_initial_pose{false};
+};
+
 geometry_msgs::msg::Quaternion yaw_to_quaternion(double yaw)
 {
   geometry_msgs::msg::Quaternion quat;
@@ -102,6 +110,7 @@ public:
     declare_parameter("frontier_update_radius", 0.0);
     declare_parameter("return_to_init", false);
     declare_parameter("direct_frontier_goal_search_radius", 2.0);
+    declare_parameter("goal_update_min_distance", 0.4);
 
     planner_freq_ = std::max(0.05, get_parameter("planner_frequency").as_double());
     frontier_search_config_.min_frontier_size = std::max(
@@ -123,6 +132,8 @@ public:
     return_to_init_ = get_parameter("return_to_init").as_bool();
     direct_goal_search_radius_ = std::max(
       0.1, get_parameter("direct_frontier_goal_search_radius").as_double());
+    goal_update_min_distance_ = std::max(
+      0.05, get_parameter("goal_update_min_distance").as_double());
 
     rclcpp::QoS map_qos(rclcpp::KeepLast(1));
     map_qos.reliable();
@@ -180,11 +191,8 @@ private:
       initial_pose_ = robot_xy;
     }
 
-    if (navigating_) {
-      if (robot_xy) {
-        check_progress(*robot_xy);
-      }
-      return;
+    if (navigating_ && robot_xy) {
+      check_progress(*robot_xy);
     }
 
     if (!exploring_) {
@@ -227,12 +235,26 @@ private:
     std::vector<Frontier> active_frontiers;
     active_frontiers.reserve(observed_frontiers.size());
     for (const auto & frontier : observed_frontiers) {
-      if (is_blacklisted(frontier.centroid_x, frontier.centroid_y) ||
-        is_completed(frontier.centroid_x, frontier.centroid_y))
+      const auto goal_xy = find_navigation_goal(grid, frontier);
+      if (!goal_xy) {
+        blacklist_point(
+          frontier.centroid_x,
+          frontier.centroid_y,
+          "No free navigation cell near the frontier centroid");
+        continue;
+      }
+
+      Frontier snapped_frontier = frontier;
+      snapped_frontier.centroid_x = goal_xy->first;
+      snapped_frontier.centroid_y = goal_xy->second;
+      snapped_frontier.min_distance = distance_xy(*robot_xy, *goal_xy);
+
+      if (is_blacklisted(snapped_frontier.centroid_x, snapped_frontier.centroid_y) ||
+        is_completed(snapped_frontier.centroid_x, snapped_frontier.centroid_y))
       {
         continue;
       }
-      active_frontiers.push_back(frontier);
+      active_frontiers.push_back(snapped_frontier);
     }
 
     if (visualize_) {
@@ -249,26 +271,45 @@ private:
         continue;
       }
 
-      const auto goal_xy = find_navigation_goal(grid, frontier);
-      if (!goal_xy) {
-        blacklist_point(
-          frontier.centroid_x,
-          frontier.centroid_y,
-          "No free navigation cell near the frontier centroid");
-        continue;
+      const auto frontier_xy = std::make_pair(frontier.centroid_x, frontier.centroid_y);
+      if (navigating_ && !should_preempt_navigation(frontier_xy, frontier_xy)) {
+        return;
       }
 
-      current_frontier_ = std::make_pair(frontier.centroid_x, frontier.centroid_y);
-      navigate_to(goal_xy->first, goal_xy->second, compute_goal_yaw(*robot_xy, *goal_xy));
+      if (navigating_) {
+        RCLCPP_INFO(
+          get_logger(),
+          "Preempting frontier goal: frontier (%.2f, %.2f) -> (%.2f, %.2f), nav goal (%.2f, %.2f) -> (%.2f, %.2f)",
+          current_frontier_ ? current_frontier_->first : std::numeric_limits<double>::quiet_NaN(),
+          current_frontier_ ? current_frontier_->second : std::numeric_limits<double>::quiet_NaN(),
+          frontier_xy.first,
+          frontier_xy.second,
+          current_goal_ ? current_goal_->first : std::numeric_limits<double>::quiet_NaN(),
+          current_goal_ ? current_goal_->second : std::numeric_limits<double>::quiet_NaN(),
+          frontier_xy.first,
+          frontier_xy.second);
+        request_navigation_preempt(
+          frontier_xy.first,
+          frontier_xy.second,
+          compute_goal_yaw(*robot_xy, frontier_xy),
+          false);
+        return;
+      }
+      current_frontier_ = frontier_xy;
+      navigate_to(frontier_xy.first, frontier_xy.second, compute_goal_yaw(*robot_xy, frontier_xy));
       return;
     }
 
     if (return_to_init_ && initial_pose_ && !returned_to_initial_pose_) {
       const double dist_home = distance_xy(*robot_xy, *initial_pose_);
       if (dist_home > 0.3) {
-        current_frontier_.reset();
-        returning_to_initial_pose_ = true;
-        navigate_to(initial_pose_->first, initial_pose_->second);
+        if (navigating_) {
+          request_navigation_preempt(initial_pose_->first, initial_pose_->second, std::nullopt, true);
+        } else {
+          current_frontier_.reset();
+          returning_to_initial_pose_ = true;
+          navigate_to(initial_pose_->first, initial_pose_->second);
+        }
         return;
       }
       returned_to_initial_pose_ = true;
@@ -405,6 +446,42 @@ private:
     RCLCPP_INFO(get_logger(), "Sending frontier goal: (%.2f, %.2f)", x, y);
   }
 
+  void request_navigation_preempt(
+    double x,
+    double y,
+    std::optional<double> yaw,
+    bool returning_to_initial_pose)
+  {
+    pending_goal_ = PendingNavigationGoal{x, y, yaw, returning_to_initial_pose};
+
+    if (preempt_requested_ && cancel_requested_) {
+      return;
+    }
+
+    if (!navigating_) {
+      dispatch_pending_goal();
+      return;
+    }
+
+    preempt_requested_ = true;
+    cancel_current_goal();
+  }
+
+  void dispatch_pending_goal()
+  {
+    if (!pending_goal_) {
+      return;
+    }
+
+    const auto pending_goal = *pending_goal_;
+    pending_goal_.reset();
+    current_frontier_ = pending_goal.returning_to_initial_pose ?
+      std::optional<std::pair<double, double>>{} :
+      std::make_optional(std::make_pair(pending_goal.x, pending_goal.y));
+    returning_to_initial_pose_ = pending_goal.returning_to_initial_pose;
+    navigate_to(pending_goal.x, pending_goal.y, pending_goal.yaw);
+  }
+
   void goal_response_callback(GoalHandleNavTo::SharedPtr handle, int seq)
   {
     if (seq != goal_seq_) {
@@ -420,6 +497,9 @@ private:
 
     nav_goal_handle_ = handle;
     RCLCPP_INFO(get_logger(), "Goal accepted by Nav2");
+    if (preempt_requested_ && pending_goal_) {
+      cancel_current_goal();
+    }
   }
 
   void navigation_result_callback(const GoalHandleNavTo::WrappedResult & result, int seq)
@@ -442,7 +522,9 @@ private:
       RCLCPP_WARN(get_logger(), "Navigation aborted by Nav2");
       blacklist_current_frontier("Navigation aborted by Nav2");
     } else if (result.code == rclcpp_action::ResultCode::CANCELED) {
-      if (progress_timeout_cancel_requested_) {
+      if (preempt_requested_) {
+        RCLCPP_INFO(get_logger(), "Navigation canceled for goal handoff");
+      } else if (progress_timeout_cancel_requested_) {
         RCLCPP_WARN(get_logger(), "Navigation canceled after progress timeout");
       } else {
         RCLCPP_INFO(get_logger(), "Navigation canceled");
@@ -453,7 +535,11 @@ private:
         static_cast<int>(result.code));
     }
 
+    const bool should_dispatch_pending = preempt_requested_ && pending_goal_.has_value();
     clear_navigation_state();
+    if (should_dispatch_pending) {
+      dispatch_pending_goal();
+    }
   }
 
   void check_progress(const std::pair<double, double> & robot_xy)
@@ -491,10 +577,32 @@ private:
     cancel_current_goal();
   }
 
+  bool should_preempt_navigation(
+    const std::pair<double, double> & frontier_xy,
+    const std::pair<double, double> & goal_xy) const
+  {
+    if (!navigating_) {
+      return true;
+    }
+
+    if (cancel_requested_ && !preempt_requested_) {
+      return false;
+    }
+
+    if (returning_to_initial_pose_ || !current_frontier_ || !current_goal_) {
+      return true;
+    }
+
+    return distance_xy(frontier_xy, *current_frontier_) > goal_update_min_distance_ ||
+           distance_xy(goal_xy, *current_goal_) > goal_update_min_distance_;
+  }
+
   void cancel_current_goal()
   {
     if (!nav_goal_handle_) {
-      clear_navigation_state();
+      if (!preempt_requested_) {
+        clear_navigation_state();
+      }
       return;
     }
     if (cancel_requested_) {
@@ -509,6 +617,7 @@ private:
     navigating_ = false;
     cancel_requested_ = false;
     progress_timeout_cancel_requested_ = false;
+    preempt_requested_ = false;
     nav_goal_handle_.reset();
     current_goal_.reset();
     current_frontier_.reset();
@@ -763,6 +872,7 @@ private:
   bool visualize_{true};
   bool return_to_init_{false};
   double direct_goal_search_radius_{2.0};
+  double goal_update_min_distance_{0.4};
 
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr live_map_ready_sub_;
@@ -783,6 +893,7 @@ private:
   bool progress_timeout_cancel_requested_{false};
   bool returning_to_initial_pose_{false};
   bool returned_to_initial_pose_{false};
+  bool preempt_requested_{false};
   int goal_seq_{0};
 
   std::optional<std::pair<double, double>> odom_pose_;
@@ -794,6 +905,7 @@ private:
   builtin_interfaces::msg::Time robot_pose_stamp_;
   std::optional<std::pair<double, double>> current_frontier_;
   std::optional<std::pair<double, double>> current_goal_;
+  std::optional<PendingNavigationGoal> pending_goal_;
   std::optional<std::pair<double, double>> last_robot_pos_;
   std::optional<rclcpp::Time> last_progress_time_;
   std::optional<std::pair<double, double>> initial_pose_;

@@ -12,6 +12,8 @@ from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
     pkg_g1_nav = get_package_share_directory('g1_nav')
+    explore_nav_to_pose_bt_xml = os.path.join(
+        pkg_g1_nav, 'behavior_trees', 'navigate_to_pose_w_g1_explore_fail_fast.xml')
 
     use_sim_time = LaunchConfiguration('use_sim_time')
     use_rviz = LaunchConfiguration('use_rviz')
@@ -34,6 +36,7 @@ def generate_launch_description():
             'rviz_config': rviz_config,
             'publish_robot_state': publish_robot_state,
             'params_file': params_file,
+            'nav_to_pose_bt_xml': explore_nav_to_pose_bt_xml,
             'enable_exploration': 'true',
             'explorer_params_file': explorer_params_file,
             'enable_scan_bridge': enable_scan_bridge,

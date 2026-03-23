@@ -123,11 +123,11 @@ controller_server:                                  # 局部规划器服务器
       required_movement_radius: 0.15
       movement_time_allowance: 20.0
     # Goal checker parameters
-    #precise_goal_checker:
-    #  plugin: "nav2_controller::SimpleGoalChecker"
-    #  xy_goal_tolerance: 0.25
-    #  yaw_goal_tolerance: 0.25
-    #  stateful: True
+    precise_goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 3.14
+      stateful: True
     general_goal_checker:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
@@ -236,11 +236,11 @@ local_costmap:
       footprint: "[[-0.4, -0.15], [0.3, -0.15], [0.3, -0.07], [0.4, -0.07], [0.4, 0.07], [0.3, 0.07], [0.3, 0.15], [-0.4, 0.15]]"   # 与圆形机器人不同
       footprint_padding: 0.05                      # 局部规划中使用较大值
       # robot_radius: 0.4                         # 参数不要动（通常半径0.4,进门半径只能0.2）
+      track_unknown_space: true
       # plugins: ["voxel_layer", "inflation_layer"]
-      # Temporarily run the local costmap without /scan while we debug the
-      # core exploration / motion chain. This keeps Nav2 from depending on
-      # the pointcloud_to_laserscan bridge.
-      plugins: ["inflation_layer"]          # 2d建图，不使用体素层
+      # Keep the live SLAM map in the local costmap so the controller also
+      # treats unknown cells as non-traversable even without /scan.
+      plugins: ["static_layer", "inflation_layer"]          # 2d建图，不使用体素层
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         enabled: True
@@ -348,10 +348,8 @@ planner_server:                              # 全局规划器服务器
       # - allow_unknown / track_unknown_space 是否导致穿越未知区？
       downsample_costmap: false           # 是否对代价地图进行降采样,复杂环境建议false,简单环境可设为true以提高性能
       downsampling_factor: 1              # 代价地图降采样因子,仅当downsample_costmap为true时有效,取值范围1-4,值越大精度越低但速度越快
-      # Frontier centroids may sit close to the expanding live-map boundary;
-      # let Navfn accept a nearby reachable cell instead of aborting outright.
       tolerance: 0.5
-      allow_unknown: true                 # 是否允许规划穿过未知区域,未知区域多时建议true,已知环境可设为false
+      allow_unknown: false                # 探索时目标点已吸附到free cell，规划不再允许穿过未知区域
       max_iterations: 1000000             # 路径搜索最大迭代次数,取值范围10000-2000000,复杂环境需要更大的迭代次数
       max_planning_time: 20.0             # 路径规划最大允许时间(秒),取值范围1.0-30.0,根据实时性要求设置
 
