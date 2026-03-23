@@ -62,3 +62,14 @@ frontier_explorer:
     # Minimum distance change (m) before a new frontier / navigation goal
     # preempts the current NavigateToPose task.
     goal_update_min_distance: 0.4
+
+    # Weighted frontier evaluation for selecting the next target.
+    # Higher score wins:
+    # 1) closer to previous frontier target
+    # 2) closer to robot
+    # 3) more aligned with robot forward direction
+    # 4) larger frontier size
+    frontier_prev_target_weight: 4.0
+    frontier_robot_distance_weight: 2.0
+    frontier_forward_alignment_weight: 1.0
+    frontier_size_weight: 0.25

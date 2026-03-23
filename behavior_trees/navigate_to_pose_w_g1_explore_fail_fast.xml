@@ -2,7 +2,8 @@
   G1 exploration-specific NavigateToPose tree:
   - Fail fast when global planning cannot produce a path
   - Replan immediately when the goal is updated
-  - Keep only short local recovery for controller-side issues
+  - Prefer recovery + replanning over immediate abort when local control
+    detects embedding / stuck conditions
 -->
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
@@ -13,7 +14,7 @@
         </RateController>
       </GoalUpdatedController>
 
-      <RecoveryNode number_of_retries="1" name="TrackPath">
+      <RecoveryNode number_of_retries="4" name="TrackPath">
         <ReactiveSequence name="TrackPathMain">
           <Inverter>
             <RobotEmbeddedInObstacle
@@ -34,6 +35,9 @@
           <ClearEntireCostmap
             name="ClearLocalCostmap-LocalReset"
             service_name="local_costmap/clear_entirely_local_costmap"/>
+          <ClearEntireCostmap
+            name="ClearGlobalCostmap-LocalReset"
+            service_name="global_costmap/clear_entirely_global_costmap"/>
         </Sequence>
       </RecoveryNode>
     </PipelineSequence>
