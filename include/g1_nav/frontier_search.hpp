@@ -14,6 +14,8 @@ struct FrontierSearchConfig
   int min_frontier_size{5};
   double clearance_scale{0.3};
   double frontier_update_radius{3.0};
+  double frontier_distance_weight{1.0};
+  double frontier_size_weight{0.0};
 };
 
 class FrontierSearch

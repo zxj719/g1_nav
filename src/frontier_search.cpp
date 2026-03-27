@@ -27,13 +27,15 @@ constexpr std::array<std::pair<int, int>, 8> kNeighbors8{{
 
 bool is_frontier_cell(const GridMapView & grid, int x, int y)
 {
-  if (grid.value(x, y) != -1) {
+  // -1 = unknown, 0 = free, 1-100 = occupied
+  // A frontier is a free cell (value==0) bordering unknown space (value==-1)
+  if (grid.value(x, y) != 0) {
     return false;
   }
   for (const auto & [dx, dy] : kNeighbors8) {
     const int nx = x + dx;
     const int ny = y + dy;
-    if (grid.in_bounds(nx, ny) && grid.value(nx, ny) == 0) {
+    if (grid.in_bounds(nx, ny) && grid.value(nx, ny) == -1) {
       return true;
     }
   }
@@ -241,16 +243,15 @@ std::vector<Frontier> FrontierSearch::search(
     }
   }
 
+  const double weight_dist = config.frontier_distance_weight;
+  const double weight_size = config.frontier_size_weight;
   std::sort(
     frontiers.begin(), frontiers.end(),
-    [](const Frontier & a, const Frontier & b) {
-      if (a.heuristic_distance != b.heuristic_distance) {
-        return a.heuristic_distance < b.heuristic_distance;
-      }
-      if (a.min_distance != b.min_distance) {
-        return a.min_distance < b.min_distance;
-      }
-      return a.size > b.size;
+    [weight_dist, weight_size](const Frontier & a, const Frontier & b) {
+      // Higher score is better: negative distance (closer = higher) + size contribution
+      const double score_a = -a.heuristic_distance * weight_dist + static_cast<double>(a.size) * weight_size;
+      const double score_b = -b.heuristic_distance * weight_dist + static_cast<double>(b.size) * weight_size;
+      return score_a > score_b;
     });
   return frontiers;
 }

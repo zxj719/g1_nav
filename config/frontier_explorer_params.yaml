@@ -37,6 +37,11 @@ frontier_explorer:
     # Set <= 0 to disable the distance gate.
     frontier_update_radius: 0.0
 
+    # Weighted frontier evaluation: score = -distance * distance_weight + size * size_weight
+    # Higher score wins.
+    frontier_distance_weight: 1.0
+    frontier_size_weight: 0.0
+
     # If no movement is detected within this many seconds during navigation,
     # cancel the current goal and blacklist that frontier.
     progress_timeout: 30.0
@@ -63,13 +68,3 @@ frontier_explorer:
     # preempts the current NavigateToPose task.
     goal_update_min_distance: 0.4
 
-    # Weighted frontier evaluation for selecting the next target.
-    # Higher score wins:
-    # 1) closer to previous frontier target
-    # 2) closer to robot
-    # 3) more aligned with robot forward direction
-    # 4) larger frontier size
-    frontier_prev_target_weight: 4.0
-    frontier_robot_distance_weight: 2.0
-    frontier_forward_alignment_weight: 1.0
-    frontier_size_weight: 0.25
