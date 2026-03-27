@@ -350,8 +350,8 @@ planner_server:                              # 全局规划器服务器
       downsampling_factor: 1              # 代价地图降采样因子,仅当downsample_costmap为true时有效,取值范围1-4,值越大精度越低但速度越快
       tolerance: 0.5
       allow_unknown: false                # 探索时目标点已吸附到free cell，规划不再允许穿过未知区域
-      max_iterations: 1000000             # 路径搜索最大迭代次数,取值范围10000-2000000,复杂环境需要更大的迭代次数
-      max_planning_time: 20.0             # 路径规划最大允许时间(秒),取值范围1.0-30.0,根据实时性要求设置
+      max_iterations: 2000000             # 路径搜索最大迭代次数,取值范围10000-2000000,复杂环境需要更大的迭代次数
+      max_planning_time: 10.0             # 路径规划最大允许时间(秒),取值范围1.0-30.0,根据实时性要求设置
 
       # -------------------- Smac / Hybrid-A* 类参数提示 --------------------
       # 下面这批参数（motion_model_for_search/angle_quantization_bins/...）通常属于

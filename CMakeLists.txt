@@ -85,6 +85,12 @@ install(PROGRAMS
   RENAME map_warmup_spin
 )
 
+install(PROGRAMS
+  g1_nav/monitor_nav2_frontier_cpu.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME monitor_nav2_frontier_cpu
+)
+
 install(TARGETS
   frontier_explorer_cpp
   DESTINATION lib/${PROJECT_NAME}
