@@ -4,7 +4,7 @@ from pathlib import Path
 import yaml
 
 
-REPO_ROOT = Path('/home/unitree/ros2_ws/src/g1_nav')
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _load_launch_module(relative_path: str, module_name: str):
@@ -160,3 +160,27 @@ def test_local_costmap_uses_scan_obstacle_layer():
         'raytrace_min_range': 0.2,
         'raytrace_max_range': 3.0,
     }
+
+
+def test_frontier_explorer_uses_global_costmap_snap_parameters():
+    with (REPO_ROOT / 'config/frontier_explorer_params.yaml').open() as stream:
+        config = yaml.safe_load(stream)
+
+    params = config['frontier_explorer']['ros__parameters']
+
+    assert params['global_costmap_topic'] == '/global_costmap/costmap'
+    assert params['frontier_snap_radius'] == 1.0
+    assert params['goal_clearance_radius'] == 0.35
+    assert 'direct_frontier_goal_search_radius' not in params
+
+
+def test_nav2_costmaps_use_circular_robot_radius():
+    with (REPO_ROOT / 'config/nav2_params_2d.yaml').open() as stream:
+        config = yaml.safe_load(stream)
+
+    for costmap_name in ('local_costmap', 'global_costmap'):
+        params = config[costmap_name][costmap_name]['ros__parameters']
+
+        assert params['robot_radius'] == 0.35
+        assert params['footprint_padding'] == 0.0
+        assert 'footprint' not in params

@@ -233,9 +233,8 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      footprint: "[[-0.4, -0.15], [0.3, -0.15], [0.3, -0.07], [0.4, -0.07], [0.4, 0.07], [0.3, 0.07], [0.3, 0.15], [-0.4, 0.15]]"   # 与圆形机器人不同
-      footprint_padding: 0.05                      # 局部规划中使用较大值
-      # robot_radius: 0.4                         # 参数不要动（通常半径0.4,进门半径只能0.2）
+      robot_radius: 0.35
+      footprint_padding: 0.0
       track_unknown_space: true
       # plugins: ["voxel_layer", "inflation_layer"]
       # Keep the live SLAM map in the local costmap so the controller also
@@ -304,10 +303,9 @@ global_costmap:
       global_frame: map
       robot_base_frame: base
       use_sim_time: false
-      # robot_radius: 0.4                           # 参数不要动
       resolution: 0.05
-      footprint: "[[-0.4, -0.15], [0.3, -0.15], [0.3, -0.07], [0.4, -0.07], [0.4, 0.07], [0.3, 0.07], [0.3, 0.15], [-0.4, 0.15]]"  # 与圆形机器人不同
-      footprint_padding: 0.10           # 从 0.40 收回；避免把窄通道在全局代价地图里直接挤没
+      robot_radius: 0.35
+      footprint_padding: 0.0
       track_unknown_space: true
       plugins: ["static_layer", "inflation_layer"]
       static_layer:
