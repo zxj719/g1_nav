@@ -178,9 +178,16 @@ def test_nav2_costmaps_use_circular_robot_radius():
     with (REPO_ROOT / 'config/nav2_params_2d.yaml').open() as stream:
         config = yaml.safe_load(stream)
 
-    for costmap_name in ('local_costmap', 'global_costmap'):
-        params = config[costmap_name][costmap_name]['ros__parameters']
+    local_params = config['local_costmap']['local_costmap']['ros__parameters']
+    global_params = config['global_costmap']['global_costmap']['ros__parameters']
 
+    for params in (local_params, global_params):
         assert params['robot_radius'] == 0.35
         assert params['footprint_padding'] == 0.0
         assert 'footprint' not in params
+
+    assert global_params['inflation_layer']['inflation_radius'] == 0.35
+    assert local_params['inflation_layer']['inflation_radius'] == 0.20
+    assert local_params['inflation_layer']['inflation_radius'] < (
+        global_params['inflation_layer']['inflation_radius']
+    )

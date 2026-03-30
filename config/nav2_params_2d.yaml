@@ -259,7 +259,7 @@ local_costmap:
         plugin: "nav2_costmap_2d::InflationLayer"
         enabled: True
         cost_scaling_factor: 10.0              # 可能会影响路径太长的计算
-        inflation_radius: 0.25                # 至少不小于内切半径，避免贴障警告
+        inflation_radius: 0.20                # 保持局部控制稍松一些，减少窄处贴边 abort
       # voxel_layer:
       #   plugin: "nav2_costmap_2d::VoxelLayer"
       #   enabled: True
@@ -320,7 +320,7 @@ global_costmap:
         plugin: "nav2_costmap_2d::InflationLayer"
         enabled: True                         # 启用膨胀层
         cost_scaling_factor: 1.5             # 可能会影响路径太长的计算
-        inflation_radius: 0.25                 # 参数不要动(通常半径0.4,进门半径只能0.25)
+        inflation_radius: 0.35                 # 与机器人半径一致，让全局路径更早绕开障碍
       always_send_full_costmap: True
 
 # map_server / amcl：
