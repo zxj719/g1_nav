@@ -22,6 +22,13 @@ find_package(visualization_msgs REQUIRED)
 
 ament_python_install_package(${PROJECT_NAME})
 
+add_library(
+  frontier_goal_selector_lib
+  src/frontier_goal_selector.cpp
+)
+target_compile_features(frontier_goal_selector_lib PUBLIC cxx_std_17)
+target_include_directories(frontier_goal_selector_lib PUBLIC include)
+
 add_executable(
   frontier_explorer_cpp
   src/frontier_explorer.cpp
@@ -29,6 +36,7 @@ add_executable(
 )
 target_compile_features(frontier_explorer_cpp PUBLIC cxx_std_17)
 target_include_directories(frontier_explorer_cpp PUBLIC include)
+target_link_libraries(frontier_explorer_cpp frontier_goal_selector_lib)
 ament_target_dependencies(
   frontier_explorer_cpp
   geometry_msgs
@@ -106,6 +114,14 @@ install(TARGETS
 )
 
 if(BUILD_TESTING)
+  ament_add_gtest(
+    frontier_goal_selector_test
+    test/frontier_goal_selector_test.cpp
+  )
+  target_compile_features(frontier_goal_selector_test PUBLIC cxx_std_17)
+  target_include_directories(frontier_goal_selector_test PUBLIC include)
+  target_link_libraries(frontier_goal_selector_test frontier_goal_selector_lib)
+
   ament_add_gtest(
     frontier_search_test
     test/frontier_search_test.cpp
