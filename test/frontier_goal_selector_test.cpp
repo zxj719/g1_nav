@@ -12,7 +12,7 @@ g1_nav::GridMapView make_grid(
   const std::vector<int8_t> & cells,
   int width,
   int height,
-  double resolution = 0.5)
+  double resolution = 1.0)
 {
   g1_nav::GridMapView grid;
   grid.cells = &cells;
@@ -96,7 +96,7 @@ TEST(FrontierGoalSelector, SnapsToRobotNearestAdmissibleRingCandidate)
   EXPECT_DOUBLE_EQ(selected->anchor_xy.first, 1.5);
   EXPECT_DOUBLE_EQ(selected->anchor_xy.second, 1.5);
   EXPECT_DOUBLE_EQ(selected->goal_xy.first, 0.5);
-  EXPECT_DOUBLE_EQ(selected->goal_xy.second, 1.5);
+  EXPECT_DOUBLE_EQ(selected->goal_xy.second, 2.5);
 }
 
 TEST(FrontierGoalSelector, SuppressesLowerRankedFrontiersInsideSnapRadius)
@@ -114,4 +114,33 @@ TEST(FrontierGoalSelector, SuppressesLowerRankedFrontiersInsideSnapRadius)
   EXPECT_DOUBLE_EQ(kept[0].centroid_y, 1.0);
   EXPECT_DOUBLE_EQ(kept[1].centroid_x, 3.5);
   EXPECT_DOUBLE_EQ(kept[1].centroid_y, 3.5);
+}
+
+TEST(FrontierGoalSelector, RejectsRingCandidateWhoseClearanceDiskTouchesCostmapInflation)
+{
+  const std::vector<int8_t> grid_cells{
+    100, 100,   0, 100, 100,
+    100, 100,   0, 100, 100,
+      0, 100, 100, 100, 100,
+    100, 100,   0, 100, 100,
+    100, 100, 100, 100, 100,
+  };
+  const std::vector<int8_t> global_costmap_cells{
+    100, 100, 100, 100, 100,
+    100, 100,   5, 100, 100,
+      0, 100, 100, 100, 100,
+    100, 100, 100, 100, 100,
+    100, 100, 100, 100, 100,
+  };
+  const auto grid = make_grid(grid_cells, 5, 5);
+  const auto global_costmap = make_grid(global_costmap_cells, 5, 5);
+  const auto frontier = make_frontier(1.5, 1.5, 5.0, 4.0);
+
+  auto config = make_config();
+  config.goal_clearance_radius = 0.6;
+
+  const auto selected = g1_nav::select_frontier_target(
+    grid, global_costmap, frontier, {0.0, 1.5}, config);
+
+  EXPECT_FALSE(selected.has_value());
 }

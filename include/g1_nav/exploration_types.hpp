@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -110,6 +112,20 @@ struct GridMapView
   bool is_obstacle(int x, int y, int threshold) const
   {
     return is_obstacle_value(value(x, y), threshold);
+  }
+
+  std::optional<std::pair<int, int>> world_to_cell(double wx, double wy) const
+  {
+    if (!valid()) {
+      return std::nullopt;
+    }
+
+    const int x = static_cast<int>(std::floor((wx - origin_x) / resolution));
+    const int y = static_cast<int>(std::floor((wy - origin_y) / resolution));
+    if (!in_bounds(x, y)) {
+      return std::nullopt;
+    }
+    return std::make_pair(x, y);
   }
 
   std::pair<double, double> cell_world(int x, int y) const
