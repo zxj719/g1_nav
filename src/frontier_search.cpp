@@ -25,17 +25,20 @@ constexpr std::array<std::pair<int, int>, 8> kNeighbors8{{
   std::pair<int, int>{1, 1},
 }};
 
-bool is_frontier_cell(const GridMapView & grid, int x, int y)
+bool is_frontier_cell(
+  const GridMapView & grid,
+  int x,
+  int y,
+  const FrontierSearchConfig & config)
 {
-  // -1 = unknown, 0 = free, 1-100 = occupied
-  // A frontier is a free cell (value==0) bordering unknown space (value==-1)
-  if (grid.value(x, y) != 0) {
+  // A frontier is a traversable search cell bordering unknown space.
+  if (!grid.is_search_free(x, y, config.search_free_threshold)) {
     return false;
   }
   for (const auto & [dx, dy] : kNeighbors8) {
     const int nx = x + dx;
     const int ny = y + dy;
-    if (grid.in_bounds(nx, ny) && grid.value(nx, ny) == -1) {
+    if (grid.in_bounds(nx, ny) && grid.is_unknown(nx, ny)) {
       return true;
     }
   }
@@ -43,14 +46,20 @@ bool is_frontier_cell(const GridMapView & grid, int x, int y)
 }
 
 std::optional<std::pair<int, int>> nearest_free_cell(
-  const GridMapView & grid, int sx, int sy, int max_radius)
+  const GridMapView & grid,
+  int sx,
+  int sy,
+  int max_radius,
+  const FrontierSearchConfig & config)
 {
   for (int r = 1; r < max_radius; ++r) {
     for (int dx = -r; dx <= r; ++dx) {
       for (int dy : {-r, r}) {
         const int nx = sx + dx;
         const int ny = sy + dy;
-        if (grid.in_bounds(nx, ny) && grid.value(nx, ny) == 0) {
+        if (grid.in_bounds(nx, ny) &&
+          grid.is_search_free(nx, ny, config.search_free_threshold))
+        {
           return std::make_pair(nx, ny);
         }
       }
@@ -59,7 +68,9 @@ std::optional<std::pair<int, int>> nearest_free_cell(
       for (int dx : {-r, r}) {
         const int nx = sx + dx;
         const int ny = sy + dy;
-        if (grid.in_bounds(nx, ny) && grid.value(nx, ny) == 0) {
+        if (grid.in_bounds(nx, ny) &&
+          grid.is_search_free(nx, ny, config.search_free_threshold))
+        {
           return std::make_pair(nx, ny);
         }
       }
@@ -69,9 +80,13 @@ std::optional<std::pair<int, int>> nearest_free_cell(
 }
 
 std::optional<std::pair<int, int>> nearest_frontier_cell(
-  const GridMapView & grid, int sx, int sy, int max_radius)
+  const GridMapView & grid,
+  int sx,
+  int sy,
+  int max_radius,
+  const FrontierSearchConfig & config)
 {
-  if (grid.in_bounds(sx, sy) && is_frontier_cell(grid, sx, sy)) {
+  if (grid.in_bounds(sx, sy) && is_frontier_cell(grid, sx, sy, config)) {
     return std::make_pair(sx, sy);
   }
 
@@ -80,7 +95,7 @@ std::optional<std::pair<int, int>> nearest_frontier_cell(
       for (int dy : {-r, r}) {
         const int nx = sx + dx;
         const int ny = sy + dy;
-        if (grid.in_bounds(nx, ny) && is_frontier_cell(grid, nx, ny)) {
+        if (grid.in_bounds(nx, ny) && is_frontier_cell(grid, nx, ny, config)) {
           return std::make_pair(nx, ny);
         }
       }
@@ -89,7 +104,7 @@ std::optional<std::pair<int, int>> nearest_frontier_cell(
       for (int dx : {-r, r}) {
         const int nx = sx + dx;
         const int ny = sy + dy;
-        if (grid.in_bounds(nx, ny) && is_frontier_cell(grid, nx, ny)) {
+        if (grid.in_bounds(nx, ny) && is_frontier_cell(grid, nx, ny, config)) {
           return std::make_pair(nx, ny);
         }
       }
@@ -141,7 +156,7 @@ Frontier build_frontier(
       const int nidx = grid.index(nx, ny);
       if (state[static_cast<size_t>(nidx)] != 3 &&
         state[static_cast<size_t>(nidx)] != 4 &&
-        is_frontier_cell(grid, nx, ny))
+        is_frontier_cell(grid, nx, ny, config))
       {
         state[static_cast<size_t>(nidx)] = 3;
         queue.emplace(nx, ny);
@@ -189,8 +204,8 @@ std::vector<Frontier> FrontierSearch::search(
     return frontiers;
   }
 
-  if (grid.value(mx, my) != 0) {
-    const auto free_cell = nearest_free_cell(grid, mx, my, 50);
+  if (!grid.is_search_free(mx, my, config.search_free_threshold)) {
+    const auto free_cell = nearest_free_cell(grid, mx, my, 50, config);
     if (!free_cell) {
       return frontiers;
     }
@@ -208,10 +223,26 @@ std::vector<Frontier> FrontierSearch::search(
     const auto [cx, cy] = bfs_queue.front();
     bfs_queue.pop();
     const int current_idx = grid.index(cx, cy);
-    if (state[static_cast<size_t>(current_idx)] == MAP_CLOSED) {
+    if (state[static_cast<size_t>(current_idx)] == MAP_CLOSED ||
+      state[static_cast<size_t>(current_idx)] == FRONTIER_CLOSED)
+    {
       continue;
     }
-    state[static_cast<size_t>(current_idx)] = MAP_CLOSED;
+
+    if (state[static_cast<size_t>(current_idx)] != FRONTIER_OPEN &&
+      is_frontier_cell(grid, cx, cy, config))
+    {
+      auto frontier = build_frontier(grid, cx, cy, state, robot_xy, dist_map, config);
+      if (frontier.size >= config.min_frontier_size &&
+        is_within_update_radius(frontier, config))
+      {
+        frontiers.push_back(frontier);
+      }
+    }
+
+    if (state[static_cast<size_t>(current_idx)] != FRONTIER_CLOSED) {
+      state[static_cast<size_t>(current_idx)] = MAP_CLOSED;
+    }
 
     for (const auto & [dx, dy] : kNeighbors8) {
       const int nx = cx + dx;
@@ -223,7 +254,7 @@ std::vector<Frontier> FrontierSearch::search(
       const int nidx = grid.index(nx, ny);
       if (state[static_cast<size_t>(nidx)] != FRONTIER_OPEN &&
         state[static_cast<size_t>(nidx)] != FRONTIER_CLOSED &&
-        is_frontier_cell(grid, nx, ny))
+        is_frontier_cell(grid, nx, ny, config))
       {
         auto frontier = build_frontier(grid, nx, ny, state, robot_xy, dist_map, config);
         if (frontier.size >= config.min_frontier_size &&
@@ -233,9 +264,8 @@ std::vector<Frontier> FrontierSearch::search(
         }
       }
 
-      if (grid.value(nx, ny) == 0 &&
-        state[static_cast<size_t>(nidx)] != MAP_OPEN &&
-        state[static_cast<size_t>(nidx)] != MAP_CLOSED)
+      if (grid.is_search_free(nx, ny, config.search_free_threshold) &&
+        state[static_cast<size_t>(nidx)] == UNVISITED)
       {
         state[static_cast<size_t>(nidx)] = MAP_OPEN;
         bfs_queue.emplace(nx, ny);
@@ -278,7 +308,8 @@ std::optional<Frontier> FrontierSearch::revalidate_nearby_frontier(
 
   const int search_radius_cells = std::max(
     1, static_cast<int>(std::ceil(match_radius / grid.resolution)));
-  const auto frontier_seed = nearest_frontier_cell(grid, mx, my, search_radius_cells);
+  const auto frontier_seed = nearest_frontier_cell(
+    grid, mx, my, search_radius_cells, config);
   if (!frontier_seed) {
     return std::nullopt;
   }

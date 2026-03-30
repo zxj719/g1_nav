@@ -100,6 +100,7 @@ public:
   {
     declare_parameter("planner_frequency", 0.2);
     declare_parameter("min_frontier_size", 20);
+    declare_parameter("search_free_threshold", 50);
     declare_parameter("robot_base_frame", "base");
     declare_parameter("odom_frame", "odom");
     declare_parameter("odom_topic", "/lightning/odometry");
@@ -124,6 +125,8 @@ public:
     planner_freq_ = std::max(0.05, get_parameter("planner_frequency").as_double());
     frontier_search_config_.min_frontier_size = std::max(
       1, static_cast<int>(get_parameter("min_frontier_size").as_int()));
+    frontier_search_config_.search_free_threshold = std::clamp(
+      static_cast<int>(get_parameter("search_free_threshold").as_int()), 0, 100);
     frontier_search_config_.frontier_update_radius = std::max(
       0.0, get_parameter("frontier_update_radius").as_double());
     robot_base_frame_ = get_parameter("robot_base_frame").as_string();
@@ -743,7 +746,7 @@ private:
       for (int dx = -search_radius_cells; dx <= search_radius_cells; ++dx) {
         const int x = center_x + dx;
         const int y = center_y + dy;
-        if (!grid.in_bounds(x, y) || grid.value(x, y) != 0) {
+        if (!grid.in_bounds(x, y) || !grid.is_goal_free(x, y)) {
           continue;
         }
         const auto world = grid.cell_center_world(x, y);

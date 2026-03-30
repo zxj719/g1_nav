@@ -47,9 +47,69 @@ struct GridMapView
     return (*cells)[static_cast<size_t>(index(x, y))];
   }
 
+  bool is_unknown_value(int8_t cell_value) const
+  {
+    return cell_value < 0;
+  }
+
+  bool is_search_free_value(int8_t cell_value) const
+  {
+    return cell_value >= 0 && cell_value <= 50;
+  }
+
+  bool is_search_free_value(int8_t cell_value, int threshold) const
+  {
+    return cell_value >= 0 && cell_value <= threshold;
+  }
+
+  bool is_goal_free_value(int8_t cell_value) const
+  {
+    return cell_value == 0;
+  }
+
+  bool is_obstacle_value(int8_t cell_value) const
+  {
+    return cell_value > 50;
+  }
+
+  bool is_obstacle_value(int8_t cell_value, int threshold) const
+  {
+    return cell_value > threshold;
+  }
+
+  bool is_unknown(int x, int y) const
+  {
+    return is_unknown_value(value(x, y));
+  }
+
+  bool is_search_free(int x, int y) const
+  {
+    return is_search_free_value(value(x, y));
+  }
+
+  bool is_search_free(int x, int y, int threshold) const
+  {
+    return is_search_free_value(value(x, y), threshold);
+  }
+
+  bool is_goal_free(int x, int y) const
+  {
+    return is_goal_free_value(value(x, y));
+  }
+
   bool is_obstacle(int idx) const
   {
-    return (*cells)[static_cast<size_t>(idx)] > 50;
+    return is_obstacle_value((*cells)[static_cast<size_t>(idx)]);
+  }
+
+  bool is_obstacle(int x, int y) const
+  {
+    return is_obstacle_value(value(x, y));
+  }
+
+  bool is_obstacle(int x, int y, int threshold) const
+  {
+    return is_obstacle_value(value(x, y), threshold);
   }
 
   std::pair<double, double> cell_world(int x, int y) const

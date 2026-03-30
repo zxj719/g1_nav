@@ -30,7 +30,12 @@ frontier_explorer:
 
     # Minimum number of frontier cells in a cluster to be considered
     # a valid frontier. Filters noise / tiny gaps.
-    min_frontier_size: 35
+    min_frontier_size: 50
+
+    # Probability-map threshold used only for frontier search and robot-start
+    # snapping. Known cells with values <= this threshold are treated as
+    # traversable search-free cells. Final Nav2 goals still stay on pure 0.
+    search_free_threshold: 0
 
     # Only refresh frontier candidates that are near the robot. This keeps
     # frontier updates local while a locked frontier target stays unchanged.

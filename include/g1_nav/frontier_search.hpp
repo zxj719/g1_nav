@@ -12,6 +12,7 @@ namespace g1_nav
 struct FrontierSearchConfig
 {
   int min_frontier_size{5};
+  int search_free_threshold{50};
   double clearance_scale{0.3};
   double frontier_update_radius{3.0};
   double frontier_distance_weight{1.0};

@@ -3,6 +3,8 @@ project(g1_nav)
 
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
+find_package(ament_cmake_gtest REQUIRED)
+find_package(ament_cmake_pytest REQUIRED)
 find_package(behaviortree_cpp_v3 REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav2_behavior_tree REQUIRED)
@@ -102,5 +104,20 @@ install(TARGETS
   ARCHIVE DESTINATION lib
   RUNTIME DESTINATION lib
 )
+
+if(BUILD_TESTING)
+  ament_add_gtest(
+    frontier_search_test
+    test/frontier_search_test.cpp
+    src/frontier_search.cpp
+  )
+  target_compile_features(frontier_search_test PUBLIC cxx_std_17)
+  target_include_directories(frontier_search_test PUBLIC include)
+
+  ament_add_pytest_test(
+    realsense_nav2_integration_test
+    test/test_realsense_nav2_integration.py
+  )
+endif()
 
 ament_package()
