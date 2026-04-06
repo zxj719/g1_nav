@@ -25,7 +25,9 @@
 #include "visualization_msgs/msg/marker_array.hpp"
 
 #include "g1_nav/exploration_types.hpp"
+#include "g1_nav/frontier_blacklist_policy.hpp"
 #include "g1_nav/frontier_goal_selector.hpp"
+#include "g1_nav/frontier_navigation_result_policy.hpp"
 #include "g1_nav/frontier_search.hpp"
 
 namespace
@@ -35,7 +37,6 @@ struct BlacklistedPoint
 {
   double x{0.0};
   double y{0.0};
-  rclcpp::Time stamp{0, 0, RCL_ROS_TIME};
 };
 
 struct CompletedPoint
@@ -113,7 +114,6 @@ public:
     declare_parameter("require_live_map", true);
     declare_parameter("transform_tolerance", 2.0);
     declare_parameter("blacklist_radius", 0.5);
-    declare_parameter("blacklist_timeout", 40.0);
     declare_parameter("progress_timeout", 30.0);
     declare_parameter("visualize", true);
     declare_parameter("frontier_update_radius", 0.0);
@@ -143,7 +143,6 @@ public:
     require_live_map_ = get_parameter("require_live_map").as_bool();
     transform_tolerance_ = get_parameter("transform_tolerance").as_double();
     blacklist_radius_ = std::max(0.05, get_parameter("blacklist_radius").as_double());
-    blacklist_timeout_ = std::max(1.0, get_parameter("blacklist_timeout").as_double());
     progress_timeout_ = std::max(1.0, get_parameter("progress_timeout").as_double());
     visualize_ = get_parameter("visualize").as_bool();
     return_to_init_ = get_parameter("return_to_init").as_bool();
@@ -259,8 +258,6 @@ private:
       return;
     }
 
-    prune_blacklist();
-
     const auto grid = make_grid_view();
     const auto global_costmap = make_global_costmap_view();
     if (!grid.valid() || !global_costmap.valid()) {
@@ -272,6 +269,13 @@ private:
       g1_nav::FrontierSearch::search(grid, *robot_xy, dummy_dist_map, frontier_search_config_);
 
     auto active_frontiers = filter_frontiers(observed_frontiers);
+    if (g1_nav::should_recover_blacklist(active_frontiers.size(), blacklisted_.size())) {
+      RCLCPP_INFO(
+        get_logger(),
+        "No available frontier after blacklist filtering, clearing blacklist to retry");
+      blacklisted_.clear();
+      active_frontiers = filter_frontiers(observed_frontiers);
+    }
     if (!active_frontiers.empty()) {
       sort_frontiers_for_selection(active_frontiers, *robot_xy);
       active_frontiers = g1_nav::suppress_frontiers_by_radius(
@@ -305,12 +309,21 @@ private:
       }
     }
 
+    // Targets are built from the full current frontier set each cycle.
+    // Pick the highest-ranked target that is not already reached.
+    std::optional<FrontierTarget> selected_target;
     for (const auto & target : targets) {
       if (distance_xy(*robot_xy, target.anchor_xy) <= frontier_reached_radius()) {
         complete_frontier(target.anchor_xy.first, target.anchor_xy.second);
         continue;
       }
 
+      selected_target = target;
+      break;
+    }
+
+    if (selected_target) {
+      const auto & target = *selected_target;
       if (navigating_ && !should_preempt_navigation(target.anchor_xy, target.goal_xy)) {
         return;
       }
@@ -334,6 +347,7 @@ private:
           false);
         return;
       }
+
       current_frontier_ = target.anchor_xy;
       navigate_to(
         target.goal_xy.first,
@@ -562,6 +576,7 @@ private:
       return;
     }
 
+    const bool handoff_in_progress = preempt_requested_ && pending_goal_.has_value();
     if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
       if (returning_to_initial_pose_) {
         returned_to_initial_pose_ = true;
@@ -573,8 +588,16 @@ private:
         RCLCPP_INFO(get_logger(), "Navigation succeeded");
       }
     } else if (result.code == rclcpp_action::ResultCode::ABORTED) {
-      RCLCPP_WARN(get_logger(), "Navigation aborted by Nav2");
-      blacklist_current_frontier("Navigation aborted by Nav2");
+      if (g1_nav::should_blacklist_on_navigation_abort(
+          preempt_requested_, pending_goal_.has_value()))
+      {
+        RCLCPP_WARN(get_logger(), "Navigation aborted by Nav2");
+        blacklist_current_frontier("Navigation aborted by Nav2");
+      } else {
+        RCLCPP_INFO(
+          get_logger(),
+          "Navigation aborted while handing off to a new goal; keeping current frontier unblacklisted");
+      }
     } else if (result.code == rclcpp_action::ResultCode::CANCELED) {
       if (preempt_requested_) {
         RCLCPP_INFO(get_logger(), "Navigation canceled for goal handoff");
@@ -589,7 +612,7 @@ private:
         static_cast<int>(result.code));
     }
 
-    const bool should_dispatch_pending = preempt_requested_ && pending_goal_.has_value();
+    const bool should_dispatch_pending = handoff_in_progress;
     clear_navigation_state();
     if (should_dispatch_pending) {
       dispatch_pending_goal();
@@ -873,7 +896,7 @@ private:
     if (is_blacklisted(x, y)) {
       return;
     }
-    blacklisted_.push_back({x, y, now()});
+    blacklisted_.push_back({x, y});
     RCLCPP_WARN(
       get_logger(),
       "Blacklisting frontier (%.2f, %.2f): %s",
@@ -906,19 +929,6 @@ private:
       }
     }
     return false;
-  }
-
-  void prune_blacklist()
-  {
-    const auto now_time = now();
-    std::vector<BlacklistedPoint> retained;
-    retained.reserve(blacklisted_.size());
-    for (const auto & item : blacklisted_) {
-      if ((now_time - item.stamp).seconds() < blacklist_timeout_) {
-        retained.push_back(item);
-      }
-    }
-    blacklisted_ = std::move(retained);
   }
 
   void clear_frontier_markers()
@@ -997,7 +1007,6 @@ private:
   bool require_live_map_{true};
   double transform_tolerance_{2.0};
   double blacklist_radius_{0.5};
-  double blacklist_timeout_{40.0};
   double progress_timeout_{30.0};
   bool visualize_{true};
   bool return_to_init_{false};

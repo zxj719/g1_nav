@@ -14,7 +14,7 @@ frontier_explorer:
     # How often the planner runs (Hz).
     # The node also replans immediately on goal completion, so this mainly
     # controls how quickly it reacts when idle.
-    planner_frequency: 0.2
+    planner_frequency: 1.0
 
     # TF frames
     robot_base_frame: base
@@ -31,12 +31,12 @@ frontier_explorer:
 
     # Minimum number of frontier cells in a cluster to be considered
     # a valid frontier. Filters noise / tiny gaps.
-    min_frontier_size: 50
+    min_frontier_size: 25
 
     # Probability-map threshold used only for frontier search and robot-start
     # snapping. Known cells with values <= this threshold are treated as
     # traversable search-free cells. Final Nav2 goals still stay on pure 0.
-    search_free_threshold: 0
+    search_free_threshold: 60
 
     # Only refresh frontier candidates that are near the robot. This keeps
     # frontier updates local while a locked frontier target stays unchanged.
@@ -46,18 +46,16 @@ frontier_explorer:
     # Weighted frontier evaluation: score = -distance * distance_weight + size * size_weight
     # Higher score wins.
     frontier_distance_weight: 1.0
-    frontier_size_weight: 0.0
+    frontier_size_weight: 0.2
 
     # If no movement is detected within this many seconds during navigation,
     # cancel the current goal and blacklist that frontier.
     progress_timeout: 30.0
 
-    # Blacklisted frontier expiry time (seconds). After this long the
-    # frontier can be targeted again.
-    blacklist_timeout: 40.0
-
     # Radius around a blacklisted point (m). Any frontier centroid
     # within this radius is also considered blacklisted.
+    # Blacklist entries are retained until no frontier remains, then the
+    # blacklist is cleared once to allow a full retry.
     blacklist_radius: 0.5
 
     # When true, the robot navigates back to its starting pose after
@@ -70,11 +68,11 @@ frontier_explorer:
     # Snap invalid frontier anchors onto an admissible goal candidate
     # found on a ring of this radius. The same radius is reused for
     # frontier non-maximum suppression.
-    frontier_snap_radius: 1.0
+    frontier_snap_radius: 0.3
 
     # Candidate goal centers must keep this much extra zero-cost clearance
     # in the global costmap, matching the circular robot radius.
-    goal_clearance_radius: 0.35
+    goal_clearance_radius: 0.1
 
     # Minimum distance change (m) before a new frontier / navigation goal
     # preempts the current NavigateToPose task.

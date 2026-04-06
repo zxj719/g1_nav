@@ -115,6 +115,20 @@ install(TARGETS
 
 if(BUILD_TESTING)
   ament_add_gtest(
+    frontier_navigation_result_policy_test
+    test/frontier_navigation_result_policy_test.cpp
+  )
+  target_compile_features(frontier_navigation_result_policy_test PUBLIC cxx_std_17)
+  target_include_directories(frontier_navigation_result_policy_test PUBLIC include)
+
+  ament_add_gtest(
+    frontier_blacklist_policy_test
+    test/frontier_blacklist_policy_test.cpp
+  )
+  target_compile_features(frontier_blacklist_policy_test PUBLIC cxx_std_17)
+  target_include_directories(frontier_blacklist_policy_test PUBLIC include)
+
+  ament_add_gtest(
     frontier_goal_selector_test
     test/frontier_goal_selector_test.cpp
   )
@@ -133,6 +147,11 @@ if(BUILD_TESTING)
   ament_add_pytest_test(
     realsense_nav2_integration_test
     test/test_realsense_nav2_integration.py
+  )
+
+  ament_add_pytest_test(
+    realsense_cpu_monitor_test
+    test/test_realsense_cpu_monitor.py
   )
 endif()
 

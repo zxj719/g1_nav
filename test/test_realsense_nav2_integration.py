@@ -17,7 +17,7 @@ def _load_launch_module(relative_path: str, module_name: str):
 
 
 def _text_value(substitution):
-    if isinstance(substitution, tuple):
+    if isinstance(substitution, (list, tuple)):
         return ''.join(_text_value(item) for item in substitution)
 
     class_name = type(substitution).__name__
@@ -44,37 +44,49 @@ def _node_parameters(node):
     return parameters
 
 
-def test_bringup_declares_realsense_scan_bridge_arguments():
-    module = _load_launch_module(
-        'launch/2d_g1_nav2_bringup.launch.py',
-        'g1_nav_bringup_launch',
-    )
-    launch_description = module.generate_launch_description()
-    argument_names = {
-        entity.name
+def _include_source_location(include_action):
+    source = include_action._IncludeLaunchDescription__launch_description_source
+    return _text_value(source._LaunchDescriptionSource__location)
+
+
+def _declared_launch_arguments(launch_description):
+    return {
+        entity.name: entity
         for entity in launch_description.entities
         if type(entity).__name__ == 'DeclareLaunchArgument'
     }
 
-    expected_arguments = {
-        'enable_realsense_scan_bridge',
-        'realsense_depth_image_topic',
-        'realsense_depth_camera_info_topic',
-        'realsense_scan_topic',
-        'realsense_scan_output_frame',
-        'realsense_scan_time',
-        'realsense_scan_range_min',
-        'realsense_scan_range_max',
-        'realsense_scan_height',
+
+def test_realsense_depth_to_scan_launch_declares_bridge_arguments():
+    module = _load_launch_module(
+        'launch/realsense_depth_to_scan.launch.py',
+        'g1_nav_realsense_depth_to_scan_launch',
+    )
+    launch_description = module.generate_launch_description()
+    arguments = _declared_launch_arguments(launch_description)
+
+    expected_defaults = {
+        'use_sim_time': 'false',
+        'realsense_depth_image_topic': '/camera/camera/depth/image_rect_raw',
+        'realsense_depth_camera_info_topic': '/camera/camera/depth/camera_info',
+        'realsense_scan_topic': '/scan',
+        'realsense_scan_output_frame': 'camera_depth_frame',
+        'realsense_scan_time': '0.2',
+        'realsense_scan_range_min': '0.2',
+        'realsense_scan_range_max': '3.0',
+        'realsense_scan_height': '3',
     }
 
-    assert expected_arguments.issubset(argument_names)
+    assert set(expected_defaults).issubset(arguments)
+
+    for name, expected in expected_defaults.items():
+        assert _text_value(arguments[name].default_value) == expected
 
 
-def test_bringup_contains_realsense_depth_to_scan_node():
+def test_realsense_depth_to_scan_launch_contains_depthimage_to_laserscan_node():
     module = _load_launch_module(
-        'launch/2d_g1_nav2_bringup.launch.py',
-        'g1_nav_bringup_launch_for_node',
+        'launch/realsense_depth_to_scan.launch.py',
+        'g1_nav_realsense_depth_to_scan_launch_node',
     )
     launch_description = module.generate_launch_description()
     matching_nodes = [
@@ -103,7 +115,105 @@ def test_bringup_contains_realsense_depth_to_scan_node():
     }
 
 
-def test_auto_explore_passes_realsense_scan_arguments_through():
+def test_bringup_declares_realsense_scan_bridge_argument():
+    module = _load_launch_module(
+        'launch/2d_g1_nav2_bringup.launch.py',
+        'g1_nav_bringup_launch',
+    )
+    launch_description = module.generate_launch_description()
+    argument_names = set(_declared_launch_arguments(launch_description))
+
+    assert 'enable_realsense_scan_bridge' in argument_names
+
+
+def test_bringup_does_not_declare_realsense_camera_arguments():
+    module = _load_launch_module(
+        'launch/2d_g1_nav2_bringup.launch.py',
+        'g1_nav_bringup_launch_camera_args',
+    )
+    launch_description = module.generate_launch_description()
+    argument_names = set(_declared_launch_arguments(launch_description))
+
+    removed_arguments = {
+        'enable_realsense_camera',
+        'realsense_camera_name',
+        'realsense_camera_namespace',
+        'realsense_camera_serial_no',
+        'realsense_camera_config_file',
+        'realsense_json_file_path',
+        'realsense_camera_log_level',
+        'realsense_camera_output',
+        'realsense_enable_color',
+        'realsense_enable_depth',
+        'realsense_pointcloud_enable',
+        'realsense_align_depth_enable',
+        'realsense_publish_tf',
+        'realsense_tf_publish_rate',
+    }
+
+    assert removed_arguments.isdisjoint(argument_names)
+
+
+def test_bringup_does_not_include_realsense_camera_launch():
+    module = _load_launch_module(
+        'launch/2d_g1_nav2_bringup.launch.py',
+        'g1_nav_bringup_launch_for_camera_include',
+    )
+    launch_description = module.generate_launch_description()
+    matching_includes = [
+        entity
+        for entity in launch_description.entities
+        if type(entity).__name__ == 'IncludeLaunchDescription'
+        and _include_source_location(entity).endswith('/realsense2_camera/launch/rs_launch.py')
+    ]
+
+    assert matching_includes == []
+
+
+def test_bringup_includes_realsense_depth_to_scan_launch():
+    module = _load_launch_module(
+        'launch/2d_g1_nav2_bringup.launch.py',
+        'g1_nav_bringup_launch_for_depth_to_scan_include',
+    )
+    launch_description = module.generate_launch_description()
+    matching_includes = [
+        entity
+        for entity in launch_description.entities
+        if type(entity).__name__ == 'IncludeLaunchDescription'
+        and _include_source_location(entity).endswith('/g1_nav/launch/realsense_depth_to_scan.launch.py')
+    ]
+
+    assert len(matching_includes) == 1
+
+    include_action = matching_includes[0]
+    launch_arguments = dict(include_action.launch_arguments)
+    assert launch_arguments.keys() == {'use_sim_time'}
+    assert _text_value(launch_arguments['use_sim_time']) == 'use_sim_time'
+
+
+def test_bringup_does_not_declare_realsense_bridge_parameter_arguments():
+    module = _load_launch_module(
+        'launch/2d_g1_nav2_bringup.launch.py',
+        'g1_nav_bringup_launch_without_bridge_params',
+    )
+    launch_description = module.generate_launch_description()
+    argument_names = set(_declared_launch_arguments(launch_description))
+
+    removed_arguments = {
+        'realsense_depth_image_topic',
+        'realsense_depth_camera_info_topic',
+        'realsense_scan_topic',
+        'realsense_scan_output_frame',
+        'realsense_scan_time',
+        'realsense_scan_range_min',
+        'realsense_scan_range_max',
+        'realsense_scan_height',
+    }
+
+    assert removed_arguments.isdisjoint(argument_names)
+
+
+def test_auto_explore_passes_realsense_scan_bridge_toggle_through():
     module = _load_launch_module(
         'launch/g1_auto_explore.launch.py',
         'g1_nav_auto_explore_launch',
@@ -113,24 +223,89 @@ def test_auto_explore_passes_realsense_scan_arguments_through():
         entity
         for entity in launch_description.entities
         if type(entity).__name__ == 'IncludeLaunchDescription'
+        and _include_source_location(entity).endswith('/g1_nav/launch/2d_g1_nav2_bringup.launch.py')
     )
     launch_arguments = dict(include_action.launch_arguments)
 
-    expected_arguments = {
-        'enable_realsense_scan_bridge': 'enable_realsense_scan_bridge',
-        'realsense_depth_image_topic': 'realsense_depth_image_topic',
-        'realsense_depth_camera_info_topic': 'realsense_depth_camera_info_topic',
-        'realsense_scan_topic': 'realsense_scan_topic',
-        'realsense_scan_output_frame': 'realsense_scan_output_frame',
-        'realsense_scan_time': 'realsense_scan_time',
-        'realsense_scan_range_min': 'realsense_scan_range_min',
-        'realsense_scan_range_max': 'realsense_scan_range_max',
-        'realsense_scan_height': 'realsense_scan_height',
+    assert 'enable_realsense_scan_bridge' in launch_arguments
+    assert _text_value(launch_arguments['enable_realsense_scan_bridge']) == (
+        'enable_realsense_scan_bridge'
+    )
+
+
+def test_auto_explore_enables_realsense_scan_bridge_by_default():
+    module = _load_launch_module(
+        'launch/g1_auto_explore.launch.py',
+        'g1_nav_auto_explore_launch_defaults',
+    )
+    launch_description = module.generate_launch_description()
+    argument = _declared_launch_arguments(launch_description)['enable_realsense_scan_bridge']
+
+    assert _text_value(argument.default_value) == 'true'
+
+
+def test_auto_explore_does_not_pass_realsense_camera_arguments_through():
+    module = _load_launch_module(
+        'launch/g1_auto_explore.launch.py',
+        'g1_nav_auto_explore_launch_camera_args',
+    )
+    launch_description = module.generate_launch_description()
+    include_action = next(
+        entity
+        for entity in launch_description.entities
+        if type(entity).__name__ == 'IncludeLaunchDescription'
+        and _include_source_location(entity).endswith('/g1_nav/launch/2d_g1_nav2_bringup.launch.py')
+    )
+    launch_arguments = dict(include_action.launch_arguments)
+
+    removed_arguments = {
+        'enable_realsense_camera': 'enable_realsense_camera',
+        'realsense_camera_name': 'realsense_camera_name',
+        'realsense_camera_namespace': 'realsense_camera_namespace',
+        'realsense_camera_serial_no': 'realsense_camera_serial_no',
+        'realsense_camera_config_file': 'realsense_camera_config_file',
+        'realsense_json_file_path': 'realsense_json_file_path',
+        'realsense_camera_log_level': 'realsense_camera_log_level',
+        'realsense_camera_output': 'realsense_camera_output',
+        'realsense_enable_color': 'realsense_enable_color',
+        'realsense_enable_depth': 'realsense_enable_depth',
+        'realsense_pointcloud_enable': 'realsense_pointcloud_enable',
+        'realsense_align_depth_enable': 'realsense_align_depth_enable',
+        'realsense_publish_tf': 'realsense_publish_tf',
+        'realsense_tf_publish_rate': 'realsense_tf_publish_rate',
     }
 
-    for name, expected in expected_arguments.items():
-        assert name in launch_arguments
-        assert _text_value(launch_arguments[name]) == expected
+    for name in removed_arguments:
+        assert name not in launch_arguments
+
+
+def test_auto_explore_does_not_pass_realsense_bridge_parameter_arguments_through():
+    module = _load_launch_module(
+        'launch/g1_auto_explore.launch.py',
+        'g1_nav_auto_explore_launch_bridge_args',
+    )
+    launch_description = module.generate_launch_description()
+    include_action = next(
+        entity
+        for entity in launch_description.entities
+        if type(entity).__name__ == 'IncludeLaunchDescription'
+        and _include_source_location(entity).endswith('/g1_nav/launch/2d_g1_nav2_bringup.launch.py')
+    )
+    launch_arguments = dict(include_action.launch_arguments)
+
+    removed_arguments = {
+        'realsense_depth_image_topic',
+        'realsense_depth_camera_info_topic',
+        'realsense_scan_topic',
+        'realsense_scan_output_frame',
+        'realsense_scan_time',
+        'realsense_scan_range_min',
+        'realsense_scan_range_max',
+        'realsense_scan_height',
+    }
+
+    for name in removed_arguments:
+        assert name not in launch_arguments
 
 
 def test_local_costmap_uses_scan_obstacle_layer():
@@ -169,12 +344,12 @@ def test_frontier_explorer_uses_global_costmap_snap_parameters():
     params = config['frontier_explorer']['ros__parameters']
 
     assert params['global_costmap_topic'] == '/global_costmap/costmap'
-    assert params['frontier_snap_radius'] == 1.0
-    assert params['goal_clearance_radius'] == 0.35
+    assert params['frontier_snap_radius'] == 0.3
+    assert params['goal_clearance_radius'] == 0.1
     assert 'direct_frontier_goal_search_radius' not in params
 
 
-def test_nav2_costmaps_use_circular_robot_radius():
+def test_nav2_costmaps_use_tuned_circular_robot_radii():
     with (REPO_ROOT / 'config/nav2_params_2d.yaml').open() as stream:
         config = yaml.safe_load(stream)
 
@@ -182,12 +357,14 @@ def test_nav2_costmaps_use_circular_robot_radius():
     global_params = config['global_costmap']['global_costmap']['ros__parameters']
 
     for params in (local_params, global_params):
-        assert params['robot_radius'] == 0.35
         assert params['footprint_padding'] == 0.0
         assert 'footprint' not in params
 
-    assert global_params['inflation_layer']['inflation_radius'] == 0.35
+    assert local_params['robot_radius'] == 0.2
+    assert global_params['robot_radius'] == 0.3
     assert local_params['inflation_layer']['inflation_radius'] == 0.20
+    assert global_params['inflation_layer']['inflation_radius'] == 0.3
+    assert global_params['inflation_layer']['inflation_radius'] == global_params['robot_radius']
     assert local_params['inflation_layer']['inflation_radius'] < (
         global_params['inflation_layer']['inflation_radius']
     )

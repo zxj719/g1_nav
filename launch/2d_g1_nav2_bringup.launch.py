@@ -27,14 +27,6 @@ def generate_launch_description():
     explorer_params_file = LaunchConfiguration('explorer_params_file')
     enable_scan_bridge = LaunchConfiguration('enable_scan_bridge')
     enable_realsense_scan_bridge = LaunchConfiguration('enable_realsense_scan_bridge')
-    realsense_depth_image_topic = LaunchConfiguration('realsense_depth_image_topic')
-    realsense_depth_camera_info_topic = LaunchConfiguration('realsense_depth_camera_info_topic')
-    realsense_scan_topic = LaunchConfiguration('realsense_scan_topic')
-    realsense_scan_output_frame = LaunchConfiguration('realsense_scan_output_frame')
-    realsense_scan_time = LaunchConfiguration('realsense_scan_time')
-    realsense_scan_range_min = LaunchConfiguration('realsense_scan_range_min')
-    realsense_scan_range_max = LaunchConfiguration('realsense_scan_range_max')
-    realsense_scan_height = LaunchConfiguration('realsense_scan_height')
     enable_map_warmup_spin = LaunchConfiguration('enable_map_warmup_spin')
     map_warmup_min_live_area_m2 = LaunchConfiguration('map_warmup_min_live_area_m2')
     map_warmup_angular_speed = LaunchConfiguration('map_warmup_angular_speed')
@@ -101,24 +93,13 @@ def generate_launch_description():
         condition=IfCondition(enable_scan_bridge),
     )
 
-    realsense_depth_to_scan_node = Node(
-        package='depthimage_to_laserscan',
-        executable='depthimage_to_laserscan_node',
-        name='realsense_depth_to_scan',
-        output='screen',
-        remappings=[
-            ('depth', realsense_depth_image_topic),
-            ('depth_camera_info', realsense_depth_camera_info_topic),
-            ('scan', realsense_scan_topic),
-        ],
-        parameters=[{
+    realsense_depth_to_scan_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_g1_nav, 'launch', 'realsense_depth_to_scan.launch.py')
+        ),
+        launch_arguments={
             'use_sim_time': use_sim_time,
-            'output_frame': realsense_scan_output_frame,
-            'scan_time': realsense_scan_time,
-            'range_min': realsense_scan_range_min,
-            'range_max': realsense_scan_range_max,
-            'scan_height': realsense_scan_height,
-        }],
+        }.items(),
         condition=IfCondition(enable_realsense_scan_bridge),
     )
 
@@ -231,46 +212,6 @@ def generate_launch_description():
             description='Launch depthimage_to_laserscan to publish /scan from Realsense depth.',
         ),
         DeclareLaunchArgument(
-            'realsense_depth_image_topic',
-            default_value='/camera/camera/depth/image_rect_raw',
-            description='Depth image topic consumed by depthimage_to_laserscan.',
-        ),
-        DeclareLaunchArgument(
-            'realsense_depth_camera_info_topic',
-            default_value='/camera/camera/depth/camera_info',
-            description='Depth camera info topic consumed by depthimage_to_laserscan.',
-        ),
-        DeclareLaunchArgument(
-            'realsense_scan_topic',
-            default_value='/scan',
-            description='LaserScan topic published by the Realsense depth bridge.',
-        ),
-        DeclareLaunchArgument(
-            'realsense_scan_output_frame',
-            default_value='camera_depth_frame',
-            description='Frame id assigned to the LaserScan generated from Realsense depth.',
-        ),
-        DeclareLaunchArgument(
-            'realsense_scan_time',
-            default_value='0.2',
-            description='scan_time parameter passed to depthimage_to_laserscan.',
-        ),
-        DeclareLaunchArgument(
-            'realsense_scan_range_min',
-            default_value='0.2',
-            description='Minimum valid range used when converting Realsense depth to LaserScan.',
-        ),
-        DeclareLaunchArgument(
-            'realsense_scan_range_max',
-            default_value='3.0',
-            description='Maximum valid range used when converting Realsense depth to LaserScan.',
-        ),
-        DeclareLaunchArgument(
-            'realsense_scan_height',
-            default_value='3',
-            description='Number of depth-image rows fused into the output LaserScan.',
-        ),
-        DeclareLaunchArgument(
             'enable_map_warmup_spin',
             default_value='false',
             description='Rotate in place until the first live SLAM map grows to a usable size.',
@@ -288,7 +229,7 @@ def generate_launch_description():
         robot_state_launch,
         base_alias_tf_node,
         pointcloud_to_scan_node,
-        realsense_depth_to_scan_node,
+        realsense_depth_to_scan_launch,
         nav2_launch,
         map_warmup_spin_node,
         frontier_explorer,
