@@ -3,8 +3,8 @@
 ## Summary
 
 This design adds a custom `scan_priority_layer` to the Nav2 `local_costmap` so the
-robot's front near-field can trust Realsense-derived `/scan` geometry more than the
-static lidar SLAM map.
+robot's front near-field can inject Realsense-derived `/scan` obstacle evidence
+without using scan data to clear or lower existing map cost.
 
 The core behavior is:
 
@@ -14,8 +14,8 @@ The core behavior is:
   fixed ground-intersection baseline derived from camera pose and a ground plane model
 - write `LETHAL_OBSTACLE` when a measured beam lands significantly closer than the
   expected ground baseline
-- write `FREE_SPACE` in the front-sector area when the beam matches the ground baseline,
-  so near-field static-map occupancy does not dominate local motion
+- do not write any low or free cost when the beam matches the ground baseline; scan is
+  used only as positive obstacle evidence
 
 ## Problem
 
@@ -32,8 +32,7 @@ Current runtime behavior shows these failure modes:
    the distance where that beam should intersect the floor".
 
 Standard `ObstacleLayer` configuration cannot express this semantic cleanly because it
-can add obstacle evidence, but it cannot reliably override front-sector static-map
-occupancy using a ground-aware rule.
+does not apply the desired ground-aware obstacle rule to the Realsense floor-line scan.
 
 ## Chosen Approach
 
@@ -49,11 +48,11 @@ ground model in the robot frame:
 - compare the measured distance against that expected floor distance
 - if the measured distance is sufficiently earlier than the floor intersection, mark the
   corresponding near-field cells as `LETHAL_OBSTACLE`
-- if the measured distance matches the floor model, clear the corresponding front-sector
-  cells to `FREE_SPACE`
+- if the measured distance matches the floor model, do not write any traversability
+  evidence into the costmap
 
-This makes local behavior front-sector scan-prioritized while preserving the lidar SLAM
-map outside the sector and outside the configured range.
+This makes local behavior add front-sector scan-derived obstacle evidence while
+preserving the lidar SLAM map everywhere else.
 
 ## Costmap Integration
 
@@ -108,9 +107,9 @@ Additional smoothing:
 
 Inside the configured front-sector and max range:
 
-- floor-compatible beams cause the traversed near-field cells to be written as
-  `FREE_SPACE`
 - obstacle beams cause the impacted cells to be written as `LETHAL_OBSTACLE`
+- floor-compatible beams do not modify cells
+- unknown beams do not modify cells
 
 Outside the front-sector or outside the scan-priority range:
 
@@ -131,7 +130,6 @@ Minimum parameter set:
 - `ground_plane_z_in_base`
 - `obstacle_margin_m`
 - `min_contiguous_beams`
-- `clear_under_ground_baseline`
 - `debug_markers_enabled`
 
 Recommended initial semantics:
@@ -143,10 +141,8 @@ Recommended initial semantics:
   should match the near-field zone where local obstacle override is desired
 - `obstacle_margin_m`
   is the main field-tuning knob; larger values make the layer more conservative
-- `clear_under_ground_baseline`
-  should default to `true` for this design because the goal is to keep front near-field
-  local traversability from being dominated by static-map occupancy when the camera sees
-  clean floor
+- floor-compatible beams should remain observation-only; they are used to suppress false
+  obstacle classification, not to clear or lower local cost
 
 ## Failure Handling
 
@@ -155,12 +151,12 @@ The plugin must fail safe:
 - if `/scan` is stale, do not override cells for that cycle
 - if TF lookup fails, do not override cells for that cycle
 - if a beam cannot produce a valid ground intersection, skip that beam
-- if a beam is `NaN`, do not use it as evidence of free space
+- if a beam is `NaN`, do not use it as obstacle evidence
 - if no fresh scan is available, preserve existing local costmap behavior instead of
-  aggressively clearing
+  inventing scan-derived obstacle evidence
 
-This prevents the scan-priority logic from inventing free space when the sensor pipeline
-is degraded.
+This prevents the scan-priority logic from inventing obstacle evidence when the sensor
+pipeline is degraded.
 
 ## Debugging and Observability
 
@@ -178,7 +174,7 @@ The raw `/scan` topic remains unchanged for RViz and field debugging.
 This design includes:
 
 - a new custom Nav2 local costmap plugin
-- local front-sector scan-priority obstacle and free-space writes
+- local front-sector scan-priority obstacle writes only
 - configuration and tests for the new plugin
 
 This design does not include:
@@ -191,14 +187,13 @@ This design does not include:
 
 ## Risks and Tradeoffs
 
-- A wrong ground-plane model can incorrectly clear true obstacles or over-mark floor
-  returns.
+- A wrong ground-plane model can over-mark floor returns as obstacles.
 - If the front-sector is too wide, the layer may suppress static-map caution outside the
   intended near-field cone.
 - If `obstacle_margin_m` is too small, floor noise may become false obstacles.
 - If `obstacle_margin_m` is too large, low obstacles may be missed.
-- Clearing local front-sector occupancy based on scan confidence improves responsiveness
-  but makes the system more dependent on the Realsense pipeline staying healthy.
+- Because scan provides only positive evidence, it cannot cancel stale or conservative
+  static-layer occupancy in front of the robot.
 
 ## Verification
 
@@ -211,8 +206,8 @@ This design does not include:
 
 ### Runtime
 
-- on flat floor with no obstacle, the front-sector near field should remain free in
-  `local_costmap`
+- on flat floor with no obstacle, the scan-priority layer should add no new lethal cells
+  to the front sector of `local_costmap`
 - when an object rises into the front-sector before the expected floor intersection,
   `local_costmap` should immediately show a local hard obstacle
 - outside the configured front-sector, local costmap behavior should remain dominated by
