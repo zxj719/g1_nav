@@ -88,6 +88,15 @@ double clamp01(double value)
   return std::clamp(value, 0.0, 1.0);
 }
 
+geometry_msgs::msg::Point make_marker_point(double x, double y, double z)
+{
+  geometry_msgs::msg::Point point;
+  point.x = x;
+  point.y = y;
+  point.z = z;
+  return point;
+}
+
 }  // namespace
 
 class FrontierExplorerNode : public rclcpp::Node
@@ -104,6 +113,7 @@ public:
     declare_parameter("planner_frequency", 0.2);
     declare_parameter("min_frontier_size", 20);
     declare_parameter("search_free_threshold", 50);
+    declare_parameter("costmap_search_threshold", 20);
     declare_parameter("robot_base_frame", "base");
     declare_parameter("odom_frame", "odom");
     declare_parameter("odom_topic", "/lightning/odometry");
@@ -119,6 +129,7 @@ public:
     declare_parameter("frontier_update_radius", 0.0);
     declare_parameter("return_to_init", false);
     declare_parameter("frontier_snap_radius", 1.0);
+    declare_parameter("frontier_fallback_snap_radius", 1.0);
     declare_parameter("goal_clearance_radius", 0.35);
     declare_parameter("goal_update_min_distance", 0.4);
     declare_parameter("frontier_prev_target_weight", 4.0);
@@ -131,6 +142,8 @@ public:
       1, static_cast<int>(get_parameter("min_frontier_size").as_int()));
     frontier_search_config_.search_free_threshold = std::clamp(
       static_cast<int>(get_parameter("search_free_threshold").as_int()), 0, 100);
+    frontier_search_config_.costmap_search_threshold = std::clamp(
+      static_cast<int>(get_parameter("costmap_search_threshold").as_int()), 0, 100);
     frontier_search_config_.frontier_update_radius = std::max(
       0.0, get_parameter("frontier_update_radius").as_double());
     robot_base_frame_ = get_parameter("robot_base_frame").as_string();
@@ -148,6 +161,8 @@ public:
     return_to_init_ = get_parameter("return_to_init").as_bool();
     frontier_snap_radius_ = std::max(
       0.1, get_parameter("frontier_snap_radius").as_double());
+    frontier_fallback_snap_radius_ = std::max(
+      frontier_snap_radius_, get_parameter("frontier_fallback_snap_radius").as_double());
     goal_clearance_radius_ = std::max(
       0.0, get_parameter("goal_clearance_radius").as_double());
     goal_update_min_distance_ = std::max(
@@ -208,9 +223,9 @@ public:
 
     RCLCPP_INFO(
       get_logger(),
-      "Frontier explorer ready: map_topic=%s global_costmap_topic=%s odom_topic=%s snap_radius=%.2fm clearance=%.2fm",
+      "Frontier explorer ready: map_topic=%s global_costmap_topic=%s odom_topic=%s snap_radius=%.2fm fallback_snap=%.2fm clearance=%.2fm",
       map_topic_.c_str(), global_costmap_topic_.c_str(), odom_topic_.c_str(),
-      frontier_snap_radius_, goal_clearance_radius_);
+      frontier_snap_radius_, frontier_fallback_snap_radius_, goal_clearance_radius_);
   }
 
 private:
@@ -266,7 +281,8 @@ private:
 
     std::vector<double> dummy_dist_map(map_msg_->data.size(), 0.0);
     const auto observed_frontiers =
-      g1_nav::FrontierSearch::search(grid, *robot_xy, dummy_dist_map, frontier_search_config_);
+      g1_nav::FrontierSearch::search(
+      grid, global_costmap, *robot_xy, dummy_dist_map, frontier_search_config_);
 
     auto active_frontiers = filter_frontiers(observed_frontiers);
     if (g1_nav::should_recover_blacklist(active_frontiers.size(), blacklisted_.size())) {
@@ -284,6 +300,7 @@ private:
 
     g1_nav::FrontierGoalSelectorConfig selector_config;
     selector_config.snap_radius = frontier_snap_radius_;
+    selector_config.fallback_snap_radius = frontier_fallback_snap_radius_;
     selector_config.goal_clearance_radius = goal_clearance_radius_;
 
     std::vector<FrontierTarget> targets;
@@ -301,14 +318,6 @@ private:
       targets.push_back(*target);
     }
 
-    if (visualize_) {
-      if (targets.empty()) {
-        clear_frontier_markers();
-      } else {
-        publish_frontier_markers(targets, targets.front());
-      }
-    }
-
     // Targets are built from the full current frontier set each cycle.
     // Pick the highest-ranked target that is not already reached.
     std::optional<FrontierTarget> selected_target;
@@ -320,6 +329,14 @@ private:
 
       selected_target = target;
       break;
+    }
+
+    if (visualize_) {
+      if (observed_frontiers.empty() && targets.empty()) {
+        clear_frontier_markers();
+      } else {
+        publish_frontier_markers(grid, observed_frontiers, targets, selected_target);
+      }
     }
 
     if (selected_target) {
@@ -945,8 +962,10 @@ private:
   }
 
   void publish_frontier_markers(
+    const g1_nav::GridMapView & grid,
+    const std::vector<Frontier> & observed_frontiers,
     const std::vector<FrontierTarget> & targets,
-    const FrontierTarget & chosen)
+    const std::optional<FrontierTarget> & chosen)
   {
     if (!marker_pub_) {
       return;
@@ -959,11 +978,57 @@ private:
 
     const auto stamp = now();
     int marker_id = 1;
+
+    visualization_msgs::msg::Marker frontier_cells_marker;
+    frontier_cells_marker.header.frame_id = global_frame_;
+    frontier_cells_marker.header.stamp = stamp;
+    frontier_cells_marker.ns = "frontier_cells";
+    frontier_cells_marker.id = marker_id++;
+    frontier_cells_marker.type = visualization_msgs::msg::Marker::POINTS;
+    frontier_cells_marker.action = visualization_msgs::msg::Marker::ADD;
+    frontier_cells_marker.pose.orientation.w = 1.0;
+    frontier_cells_marker.scale.x = std::max(0.03, grid.resolution * 0.45);
+    frontier_cells_marker.scale.y = std::max(0.03, grid.resolution * 0.45);
+    frontier_cells_marker.color.r = 1.0;
+    frontier_cells_marker.color.g = 0.6;
+    frontier_cells_marker.color.b = 0.0;
+    frontier_cells_marker.color.a = 0.85;
+    frontier_cells_marker.lifetime = rclcpp::Duration::from_seconds(5.0);
+
+    visualization_msgs::msg::Marker frontier_centroids_marker;
+    frontier_centroids_marker.header.frame_id = global_frame_;
+    frontier_centroids_marker.header.stamp = stamp;
+    frontier_centroids_marker.ns = "frontier_centroids";
+    frontier_centroids_marker.id = marker_id++;
+    frontier_centroids_marker.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+    frontier_centroids_marker.action = visualization_msgs::msg::Marker::ADD;
+    frontier_centroids_marker.pose.orientation.w = 1.0;
+    frontier_centroids_marker.scale.x = 0.12;
+    frontier_centroids_marker.scale.y = 0.12;
+    frontier_centroids_marker.scale.z = 0.12;
+    frontier_centroids_marker.color.r = 1.0;
+    frontier_centroids_marker.color.g = 0.15;
+    frontier_centroids_marker.color.b = 0.15;
+    frontier_centroids_marker.color.a = 0.9;
+    frontier_centroids_marker.lifetime = rclcpp::Duration::from_seconds(5.0);
+
+    for (const auto & frontier : observed_frontiers) {
+      for (const auto & [cell_x, cell_y] : frontier.cells) {
+        const auto [wx, wy] = grid.cell_center_world(cell_x, cell_y);
+        frontier_cells_marker.points.push_back(make_marker_point(wx, wy, 0.02));
+      }
+      frontier_centroids_marker.points.push_back(
+        make_marker_point(frontier.centroid_x, frontier.centroid_y, 0.08));
+    }
+
+    markers.markers.push_back(frontier_cells_marker);
+    markers.markers.push_back(frontier_centroids_marker);
+
     for (const auto & target : targets) {
       visualization_msgs::msg::Marker marker;
       marker.header.frame_id = global_frame_;
       marker.header.stamp = stamp;
-      marker.ns = "frontiers";
+      marker.ns = "frontier_goals";
       marker.id = marker_id++;
       marker.type = visualization_msgs::msg::Marker::SPHERE;
       marker.action = visualization_msgs::msg::Marker::ADD;
@@ -975,10 +1040,10 @@ private:
       marker.scale.y = 0.18;
       marker.scale.z = 0.18;
 
-      const bool selected =
+      const bool selected = chosen.has_value() &&
         std::hypot(
-        target.goal_xy.first - chosen.goal_xy.first,
-        target.goal_xy.second - chosen.goal_xy.second) <= 1e-4;
+        target.goal_xy.first - chosen->goal_xy.first,
+        target.goal_xy.second - chosen->goal_xy.second) <= 1e-4;
       if (selected) {
         marker.color.g = 1.0;
       } else {
@@ -1011,6 +1076,7 @@ private:
   bool visualize_{true};
   bool return_to_init_{false};
   double frontier_snap_radius_{1.0};
+  double frontier_fallback_snap_radius_{1.0};
   double goal_clearance_radius_{0.35};
   double goal_update_min_distance_{0.4};
   double frontier_prev_target_weight_{4.0};

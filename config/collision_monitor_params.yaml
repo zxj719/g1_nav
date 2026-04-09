@@ -1,0 +1,37 @@
+collision_monitor:
+  ros__parameters:
+    base_frame_id: "base"
+    odom_frame_id: "odom"
+    cmd_vel_in_topic: "cmd_vel"
+    cmd_vel_out_topic: "cmd_vel_safe"
+    transform_tolerance: 0.2
+    source_timeout: 0.5
+    base_shift_correction: True
+    stop_pub_timeout: 0.3
+
+    polygons: ["Slowdown", "Stop"]
+    Slowdown:
+      type: "polygon"
+      # Start outside the robot envelope so legs / body returns do not
+      # immediately clamp motion at goal start-up.
+      points: [0.95, 0.32, 0.95, -0.32, 0.45, -0.32, 0.45, 0.32]
+      action_type: "slowdown"
+      slowdown_ratio: 0.3
+      max_points: 8
+      visualize: True
+      polygon_pub_topic: "collision_monitor/slowdown_polygon"
+      enabled: True
+    Stop:
+      type: "polygon"
+      points: [0.65, 0.24, 0.65, -0.24, 0.30, -0.24, 0.30, 0.24]
+      action_type: "stop"
+      max_points: 6
+      visualize: True
+      polygon_pub_topic: "collision_monitor/stop_polygon"
+      enabled: True
+
+    observation_sources: ["scan"]
+    scan:
+      type: "scan"
+      topic: "/scan"
+      enabled: True

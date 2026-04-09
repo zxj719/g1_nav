@@ -1,6 +1,7 @@
 #include "g1_nav/frontier_goal_selector.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace g1_nav
@@ -137,16 +138,26 @@ std::optional<FrontierTarget> select_frontier_target(
     return FrontierTarget{frontier, anchor_xy, anchor_xy};
   }
 
-  auto candidates = ring_candidates(global_costmap, anchor_xy, config.snap_radius);
-  std::sort(
-    candidates.begin(), candidates.end(),
-    [&robot_xy](const auto & a, const auto & b) {
-      return distance_xy(a, robot_xy) < distance_xy(b, robot_xy);
-    });
+  double last_radius = -1.0;
+  for (const double radius : std::array<double, 2>{
+         config.snap_radius, config.fallback_snap_radius})
+  {
+    if (radius <= 0.0 || std::abs(radius - last_radius) <= 1e-6) {
+      continue;
+    }
+    last_radius = radius;
 
-  for (const auto & candidate_xy : candidates) {
-    if (is_goal_admissible(grid_map, global_costmap, candidate_xy, config.goal_clearance_radius)) {
-      return FrontierTarget{frontier, anchor_xy, candidate_xy};
+    auto candidates = ring_candidates(global_costmap, anchor_xy, radius);
+    std::sort(
+      candidates.begin(), candidates.end(),
+      [&robot_xy](const auto & a, const auto & b) {
+        return distance_xy(a, robot_xy) < distance_xy(b, robot_xy);
+      });
+
+    for (const auto & candidate_xy : candidates) {
+      if (is_goal_admissible(grid_map, global_costmap, candidate_xy, config.goal_clearance_radius)) {
+        return FrontierTarget{frontier, anchor_xy, candidate_xy};
+      }
     }
   }
 

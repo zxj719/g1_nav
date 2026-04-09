@@ -25,6 +25,7 @@ def generate_launch_description():
     params_file = LaunchConfiguration('params_file')
     enable_exploration = LaunchConfiguration('enable_exploration')
     explorer_params_file = LaunchConfiguration('explorer_params_file')
+    collision_monitor_params_file = LaunchConfiguration('collision_monitor_params_file')
     enable_scan_bridge = LaunchConfiguration('enable_scan_bridge')
     enable_realsense_scan_bridge = LaunchConfiguration('enable_realsense_scan_bridge')
     enable_map_warmup_spin = LaunchConfiguration('enable_map_warmup_spin')
@@ -143,11 +144,32 @@ def generate_launch_description():
         condition=IfCondition(use_rviz),
     )
 
+    collision_monitor_node = Node(
+        package='nav2_collision_monitor',
+        executable='collision_monitor',
+        name='collision_monitor',
+        output='screen',
+        parameters=[collision_monitor_params_file, {'use_sim_time': use_sim_time}],
+    )
+
+    collision_monitor_lifecycle_manager = Node(
+        package='nav2_lifecycle_manager',
+        executable='lifecycle_manager',
+        name='lifecycle_manager_collision_monitor',
+        output='screen',
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'autostart': True,
+            'node_names': ['collision_monitor'],
+        }],
+    )
+
     g1_move_node = Node(
         package='g1_cmd',
         executable='g1_move',
         name='g1_move',
         output='screen',
+        remappings=[('cmd_vel', 'cmd_vel_safe')],
     )
 
     return LaunchDescription([
@@ -202,6 +224,12 @@ def generate_launch_description():
             description='Frontier explorer parameters file',
         ),
         DeclareLaunchArgument(
+            'collision_monitor_params_file',
+            default_value=os.path.join(
+                pkg_g1_nav, 'config', 'collision_monitor_params.yaml'),
+            description='Collision monitor parameters file',
+        ),
+        DeclareLaunchArgument(
             'enable_scan_bridge',
             default_value='false',
             description='Launch pointcloud_to_laserscan to publish /scan from lidar.',
@@ -234,5 +262,7 @@ def generate_launch_description():
         map_warmup_spin_node,
         frontier_explorer,
         rviz_node,
+        collision_monitor_node,
+        collision_monitor_lifecycle_manager,
         g1_move_node,
     ])

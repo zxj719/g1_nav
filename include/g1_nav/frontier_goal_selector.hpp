@@ -12,6 +12,7 @@ namespace g1_nav
 struct FrontierGoalSelectorConfig
 {
   double snap_radius{1.0};
+  double fallback_snap_radius{1.0};
   double goal_clearance_radius{0.35};
 };
 

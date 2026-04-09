@@ -18,6 +18,7 @@ struct Frontier
   double cost{0.0};
   double centroid_x{0.0};
   double centroid_y{0.0};
+  std::vector<std::pair<int, int>> cells;
 };
 
 struct GridMapView

@@ -42,6 +42,7 @@ g1_nav::FrontierGoalSelectorConfig make_config()
 {
   g1_nav::FrontierGoalSelectorConfig config;
   config.snap_radius = 1.0;
+  config.fallback_snap_radius = 1.0;
   config.goal_clearance_radius = 0.35;
   return config;
 }
@@ -143,4 +144,34 @@ TEST(FrontierGoalSelector, RejectsRingCandidateWhoseClearanceDiskTouchesCostmapI
     grid, global_costmap, frontier, {0.0, 1.5}, config);
 
   EXPECT_FALSE(selected.has_value());
+}
+
+TEST(FrontierGoalSelector, UsesFallbackSnapRadiusWhenPrimaryRingHasNoGoal)
+{
+  const std::vector<int8_t> grid_cells{
+    100, 100, 100,   0, 100, 100, 100,
+    100, 100, 100, 100, 100, 100, 100,
+    100, 100, 100, 100, 100, 100, 100,
+    100,   0, 100, 100, 100, 100, 100,
+    100, 100, 100, 100, 100, 100, 100,
+    100, 100, 100, 100, 100, 100, 100,
+    100, 100, 100, 100, 100, 100, 100,
+  };
+  const auto grid = make_grid(grid_cells, 7, 7);
+  const auto global_costmap = make_grid(grid_cells, 7, 7);
+  const auto frontier = make_frontier(3.5, 3.5, 5.0, 2.0);
+
+  auto config = make_config();
+  config.goal_clearance_radius = 0.0;
+  config.snap_radius = 1.0;
+  config.fallback_snap_radius = 2.0;
+
+  const auto selected = g1_nav::select_frontier_target(
+    grid, global_costmap, frontier, {0.0, 3.5}, config);
+
+  ASSERT_TRUE(selected.has_value());
+  EXPECT_DOUBLE_EQ(selected->anchor_xy.first, 3.5);
+  EXPECT_DOUBLE_EQ(selected->anchor_xy.second, 3.5);
+  EXPECT_DOUBLE_EQ(selected->goal_xy.first, 1.5);
+  EXPECT_DOUBLE_EQ(selected->goal_xy.second, 3.5);
 }

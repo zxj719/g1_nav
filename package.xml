@@ -35,6 +35,7 @@
   <depend>go2_sport</depend>
 
   <exec_depend>nav2_rotation_shim_controller</exec_depend>
+  <exec_depend>nav2_collision_monitor</exec_depend>
   <exec_depend>sshpass</exec_depend>
 
   <test_depend>ament_copyright</test_depend>

@@ -76,7 +76,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'realsense_scan_range_max',
-            default_value='3.0',
+            default_value='2.5',
             description='Maximum valid range used when converting Realsense depth to LaserScan.',
         ),
         DeclareLaunchArgument(
