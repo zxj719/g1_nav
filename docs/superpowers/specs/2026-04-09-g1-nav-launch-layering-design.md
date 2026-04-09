@@ -49,6 +49,9 @@ only behavior that belongs to generic `slam + nav2` bringup:
 - RViz
 - `g1_move`
 
+As part of this cleanup, the default RViz config filename should be renamed from
+`nav2_go2_view.rviz` to `nav2_g1_view.rviz` so the package naming matches the G1 robot.
+
 It removes these exploration- or Realsense-specific responsibilities:
 
 - frontier explorer startup
@@ -79,6 +82,9 @@ This makes `g1_auto_explore.launch.py` mean exactly:
 
 - start the normal navigation stack
 - then add frontier exploration behavior
+
+It should also inherit the renamed default RViz config path
+`rviz/nav2_g1_view.rviz`.
 
 ### Layer 3: Realsense Local Obstacle Layer
 
@@ -197,6 +203,7 @@ by tests.
 `2d_g1_nav2_bringup.launch.py` should:
 
 - still declare the base navigation arguments
+- use `rviz/nav2_g1_view.rviz` as the default RViz config path
 - no longer declare frontier exploration arguments
 - no longer declare warmup arguments
 - no longer declare Realsense bridge arguments
@@ -209,6 +216,7 @@ by tests.
 
 - include `2d_g1_nav2_bringup.launch.py`
 - pass the exploration BT XML override to the base bringup
+- use `rviz/nav2_g1_view.rviz` as the default RViz config path
 - directly create the frontier explorer node
 - directly create the warmup spin node when enabled
 - not declare or forward Realsense arguments
