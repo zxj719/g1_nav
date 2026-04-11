@@ -1,4 +1,5 @@
 import importlib.util
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import yaml
@@ -55,6 +56,15 @@ def _declared_launch_arguments(launch_description):
         for entity in launch_description.entities
         if type(entity).__name__ == 'DeclareLaunchArgument'
     }
+
+
+def _named_sequence(relative_path: str, sequence_name: str):
+    root = ET.parse(REPO_ROOT / relative_path).getroot()
+    return next(
+        node
+        for node in root.iter('Sequence')
+        if node.attrib.get('name') == sequence_name
+    )
 
 
 def test_realsense_depth_to_scan_launch_declares_bridge_arguments():
@@ -477,3 +487,67 @@ def test_dwb_follow_path_raises_obstacle_avoidance_priority():
     follow_path = config['controller_server']['ros__parameters']['FollowPath']
 
     assert follow_path['BaseObstacle.scale'] == 0.2
+
+
+def test_bt_navigator_loads_escape_obstacle_plugin():
+    with (REPO_ROOT / 'config/nav2_params_2d.yaml').open() as stream:
+        config = yaml.safe_load(stream)
+
+    plugin_names = config['bt_navigator']['ros__parameters']['plugin_lib_names']
+
+    assert 'g1_escape_obstacle_action_bt_node' in plugin_names
+
+
+def test_follow_path_disables_lateral_navigation_velocity():
+    with (REPO_ROOT / 'config/nav2_params_2d.yaml').open() as stream:
+        config = yaml.safe_load(stream)
+
+    follow_path = config['controller_server']['ros__parameters']['FollowPath']
+    velocity_smoother = config['velocity_smoother']['ros__parameters']
+
+    assert follow_path['max_vel_y'] == 0.0
+    assert follow_path['vy_samples'] == 1
+    assert velocity_smoother['max_velocity'][1] == 0.0
+    assert velocity_smoother['min_velocity'][1] == 0.0
+
+
+def test_navigate_to_pose_embedded_recovery_uses_escape_obstacle():
+    sequence = _named_sequence(
+        'behavior_trees/navigate_to_pose_w_g1_embedded_recovery.xml',
+        'EmbeddedRecoveryLevel1',
+    )
+
+    assert [child.tag for child in sequence] == [
+        'CancelControl',
+        'EscapeObstacle',
+        'ClearEntireCostmap',
+        'ClearEntireCostmap',
+    ]
+    escape_obstacle = sequence[1]
+    required_attributes = {
+        'clear_confirmations': '3',
+        'cmd_vel_topic': 'cmd_vel',
+        'costmap_topic': 'local_costmap/costmap_raw',
+        'footprint_topic': 'local_costmap/published_footprint',
+        'robot_base_frame': 'base',
+        'longitudinal_speed': '0.25',
+        'lateral_speed': '0.20',
+        'lethal_cost_threshold': '254',
+        'transform_tolerance': '0.2',
+    }
+    for key, value in required_attributes.items():
+        assert escape_obstacle.attrib.get(key) == value
+
+
+def test_navigate_through_poses_embedded_recovery_uses_escape_obstacle():
+    sequence = _named_sequence(
+        'behavior_trees/navigate_through_poses_w_g1_embedded_recovery.xml',
+        'EmbeddedRecoveryLevel1',
+    )
+
+    assert [child.tag for child in sequence] == [
+        'CancelControl',
+        'EscapeObstacle',
+        'ClearEntireCostmap',
+        'ClearEntireCostmap',
+    ]

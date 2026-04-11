@@ -73,6 +73,7 @@ bt_navigator:
     - nav2_path_expiring_timer_condition
     - nav2_distance_traveled_condition_bt_node
     - g1_robot_embedded_in_obstacle_condition_bt_node
+    - g1_escape_obstacle_action_bt_node
     - nav2_single_trigger_bt_node
     - nav2_goal_updated_controller_bt_node
     - nav2_is_battery_low_condition_bt_node
@@ -145,7 +146,7 @@ controller_server:                                  # 局部规划器服务器
       min_vel_x: 0.0
       min_vel_y: 0.00
       max_vel_x: 0.30
-      max_vel_y: 0.2       
+      max_vel_y: 0.0
       max_vel_theta: 0.55
       min_vel_theta: 0.10
       min_speed_xy: 0.0
@@ -160,7 +161,7 @@ controller_server:                                  # 局部规划器服务器
       decel_lim_y: 0.0
       decel_lim_theta: -3.2
       vx_samples: 15
-      vy_samples: 3
+      vy_samples: 1
       vtheta_samples: 20
       sim_time: 1.2
       linear_granularity: 0.05
@@ -511,7 +512,7 @@ velocity_smoother:
     # OPEN_LOOP avoids hard dependence on odometry feedback.
     feedback: "OPEN_LOOP"
     # feedback: "CLOSED_LOOP"
-    max_velocity: [0.4, 0.2, 1.0]
+    max_velocity: [0.4, 0.0, 1.0]
     min_velocity: [-0.4, 0.0, -1.0]
     max_accel: [2.5, 0.0, 3.2]
     max_decel: [-2.5, 0.0, -3.2]

@@ -76,6 +76,33 @@ ament_target_dependencies(
   tf2_ros
 )
 
+add_library(g1_escape_obstacle_action_bt_node SHARED
+  src/escape_obstacle_action.cpp
+)
+target_compile_features(g1_escape_obstacle_action_bt_node PUBLIC cxx_std_17)
+target_compile_definitions(
+  g1_escape_obstacle_action_bt_node
+  PRIVATE BT_PLUGIN_EXPORT
+)
+target_include_directories(
+  g1_escape_obstacle_action_bt_node
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+ament_target_dependencies(
+  g1_escape_obstacle_action_bt_node
+  behaviortree_cpp_v3
+  geometry_msgs
+  nav2_behavior_tree
+  nav2_costmap_2d
+  nav2_msgs
+  rclcpp
+  tf2
+  tf2_geometry_msgs
+  tf2_ros
+)
+
 install(DIRECTORY
   behavior_trees
   config
@@ -113,6 +140,13 @@ install(TARGETS
   RUNTIME DESTINATION lib
 )
 
+install(TARGETS
+  g1_escape_obstacle_action_bt_node
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION lib
+)
+
 if(BUILD_TESTING)
   ament_add_gtest(
     frontier_navigation_result_policy_test
@@ -143,6 +177,25 @@ if(BUILD_TESTING)
   )
   target_compile_features(frontier_search_test PUBLIC cxx_std_17)
   target_include_directories(frontier_search_test PUBLIC include)
+
+  ament_add_gtest(
+    escape_obstacle_action_test
+    test/escape_obstacle_action_test.cpp
+    src/escape_obstacle_action.cpp
+  )
+  target_compile_features(escape_obstacle_action_test PUBLIC cxx_std_17)
+  target_include_directories(escape_obstacle_action_test PUBLIC include)
+  ament_target_dependencies(
+    escape_obstacle_action_test
+    behaviortree_cpp_v3
+    geometry_msgs
+    nav2_costmap_2d
+    nav2_msgs
+    rclcpp
+    tf2
+    tf2_geometry_msgs
+    tf2_ros
+  )
 
   ament_add_pytest_test(
     realsense_nav2_integration_test
