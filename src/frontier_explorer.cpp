@@ -26,6 +26,7 @@
 
 #include "g1_nav/exploration_types.hpp"
 #include "g1_nav/frontier_blacklist_policy.hpp"
+#include "g1_nav/frontier_completion_policy.hpp"
 #include "g1_nav/frontier_goal_selector.hpp"
 #include "g1_nav/frontier_navigation_result_policy.hpp"
 #include "g1_nav/frontier_search.hpp"
@@ -322,7 +323,12 @@ private:
     // Pick the highest-ranked target that is not already reached.
     std::optional<FrontierTarget> selected_target;
     for (const auto & target : targets) {
-      if (distance_xy(*robot_xy, target.anchor_xy) <= frontier_reached_radius()) {
+      if (g1_nav::should_complete_candidate_frontier_by_proximity(
+          current_frontier_,
+          target.anchor_xy,
+          *robot_xy,
+          frontier_reached_radius(),
+          frontier_completion_match_radius())) {
         complete_frontier(target.anchor_xy.first, target.anchor_xy.second);
         continue;
       }
@@ -801,6 +807,14 @@ private:
     return std::max(0.35, 2.0 * blacklist_radius_);
   }
 
+  double frontier_completion_match_radius() const
+  {
+    // Completion history should only absorb small centroid drift for the
+    // same frontier anchor. Using the full reached radius here would hide
+    // legitimately new nearby frontiers after the robot arrives.
+    return std::max(0.10, 0.5 * frontier_snap_radius_);
+  }
+
   std::vector<Frontier> filter_frontiers(const std::vector<Frontier> & snapped_frontiers) const
   {
     std::vector<Frontier> active_frontiers;
@@ -940,8 +954,13 @@ private:
 
   bool is_completed(double x, double y) const
   {
+    const std::pair<double, double> frontier_xy{x, y};
     for (const auto & item : completed_) {
-      if (std::hypot(item.x - x, item.y - y) <= frontier_reached_radius()) {
+      if (g1_nav::is_same_frontier_anchor(
+          frontier_xy,
+          std::pair<double, double>{item.x, item.y},
+          frontier_completion_match_radius()))
+      {
         return true;
       }
     }

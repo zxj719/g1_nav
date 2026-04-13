@@ -149,6 +149,13 @@ install(TARGETS
 
 if(BUILD_TESTING)
   ament_add_gtest(
+    frontier_completion_policy_test
+    test/frontier_completion_policy_test.cpp
+  )
+  target_compile_features(frontier_completion_policy_test PUBLIC cxx_std_17)
+  target_include_directories(frontier_completion_policy_test PUBLIC include)
+
+  ament_add_gtest(
     frontier_navigation_result_policy_test
     test/frontier_navigation_result_policy_test.cpp
   )
