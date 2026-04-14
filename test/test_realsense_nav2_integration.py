@@ -6,6 +6,9 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+EXPECTED_REALSENSE_RS_LAUNCH_PATH = (
+    '/tmp/realsense2_camera/launch/rs_launch.py'
+)
 
 
 def _load_launch_module(relative_path: str, module_name: str):
@@ -15,6 +18,19 @@ def _load_launch_module(relative_path: str, module_name: str):
     spec.loader.exec_module(module)
     module.get_package_share_directory = lambda package: f'/tmp/{package}'
     return module
+
+
+def _load_yaml(relative_path: str):
+    with (REPO_ROOT / relative_path).open() as stream:
+        return yaml.safe_load(stream)
+
+
+def _launch_argument_text(value):
+    if isinstance(value, bool):
+        return 'true' if value else 'false'
+    if value == '':
+        return "''"
+    return str(value)
 
 
 def _text_value(substitution):
@@ -45,6 +61,13 @@ def _node_parameters(node):
     return parameters
 
 
+def _decoded_node_parameters(node):
+    return {
+        key: yaml.safe_load(value)
+        for key, value in _node_parameters(node).items()
+    }
+
+
 def _include_source_location(include_action):
     source = include_action._IncludeLaunchDescription__launch_description_source
     return _text_value(source._LaunchDescriptionSource__location)
@@ -67,38 +90,49 @@ def _named_sequence(relative_path: str, sequence_name: str):
     )
 
 
-def test_realsense_depth_to_scan_launch_declares_bridge_arguments():
+def _xml_contains_tag(relative_path: str, tag_name: str):
+    root = ET.parse(REPO_ROOT / relative_path).getroot()
+    return any(node.tag == tag_name for node in root.iter())
+
+
+def test_realsense_depth_to_scan_launch_uses_package_share_rs_launch():
     module = _load_launch_module(
         'launch/realsense_depth_to_scan.launch.py',
         'g1_nav_realsense_depth_to_scan_launch',
     )
     launch_description = module.generate_launch_description()
     arguments = _declared_launch_arguments(launch_description)
+    config = _load_yaml('config/realsense_depth_to_scan.yaml')
 
-    expected_defaults = {
-        'use_sim_time': 'false',
-        'realsense_depth_image_topic': '/camera/camera/depth/image_rect_raw',
-        'realsense_depth_camera_info_topic': '/camera/camera/depth/camera_info',
-        'realsense_scan_topic': '/scan',
-        'realsense_scan_output_frame': 'camera_depth_frame',
-        'realsense_scan_time': '0.2',
-        'realsense_scan_range_min': '0.2',
-        'realsense_scan_range_max': '2.5',
-        'realsense_scan_height': '3',
+    assert arguments == {}
+
+    matching_includes = [
+        entity
+        for entity in launch_description.entities
+        if type(entity).__name__ == 'IncludeLaunchDescription'
+    ]
+    assert len(matching_includes) == 1
+
+    include_action = matching_includes[0]
+    assert _include_source_location(include_action) == EXPECTED_REALSENSE_RS_LAUNCH_PATH
+    launch_arguments = dict(include_action.launch_arguments)
+
+    expected_arguments = {
+        key: _launch_argument_text(value)
+        for key, value in config['realsense_camera']['launch_arguments'].items()
     }
-
-    assert set(expected_defaults).issubset(arguments)
-
-    for name, expected in expected_defaults.items():
-        assert _text_value(arguments[name].default_value) == expected
+    assert set(launch_arguments) == set(expected_arguments)
+    for key, expected in expected_arguments.items():
+        assert _text_value(launch_arguments[key]) == expected
 
 
-def test_realsense_depth_to_scan_launch_contains_depthimage_to_laserscan_node():
+def test_realsense_depth_to_scan_launch_contains_depthimage_to_laserscan_node_from_yaml():
     module = _load_launch_module(
         'launch/realsense_depth_to_scan.launch.py',
         'g1_nav_realsense_depth_to_scan_launch_node',
     )
     launch_description = module.generate_launch_description()
+    config = _load_yaml('config/realsense_depth_to_scan.yaml')
     matching_nodes = [
         entity
         for entity in launch_description.entities
@@ -110,19 +144,21 @@ def test_realsense_depth_to_scan_launch_contains_depthimage_to_laserscan_node():
     assert len(matching_nodes) == 1
 
     node = matching_nodes[0]
-    assert _node_remappings(node) == {
-        'depth': 'realsense_depth_image_topic',
-        'depth_camera_info': 'realsense_depth_camera_info_topic',
-        'scan': 'realsense_scan_topic',
+    assert _node_remappings(node) == config['depth_to_scan']['remappings']
+
+    expected_parameters = {
+        'use_sim_time': False,
+        **config['depth_to_scan']['parameters'],
     }
-    assert _node_parameters(node) == {
-        'use_sim_time': 'use_sim_time',
-        'output_frame': 'realsense_scan_output_frame',
-        'scan_time': 'realsense_scan_time',
-        'range_min': 'realsense_scan_range_min',
-        'range_max': 'realsense_scan_range_max',
-        'scan_height': 'realsense_scan_height',
-    }
+    assert _decoded_node_parameters(node) == expected_parameters
+
+
+def test_realsense_depth_to_scan_outputs_scan_in_base_frame_at_camera_rate():
+    config = _load_yaml('config/realsense_depth_to_scan.yaml')
+    params = config['depth_to_scan']['parameters']
+
+    assert params['output_frame'] == 'base'
+    assert params['scan_time'] == 0.1
 
 
 def test_bringup_declares_realsense_scan_bridge_argument():
@@ -197,8 +233,7 @@ def test_bringup_includes_realsense_depth_to_scan_launch():
 
     include_action = matching_includes[0]
     launch_arguments = dict(include_action.launch_arguments)
-    assert launch_arguments.keys() == {'use_sim_time'}
-    assert _text_value(launch_arguments['use_sim_time']) == 'use_sim_time'
+    assert launch_arguments == {}
 
 
 def test_bringup_declares_collision_monitor_params_argument():
@@ -429,21 +464,26 @@ def test_collision_monitor_uses_scan_and_safe_cmd_vel_topics():
     assert params['odom_frame_id'] == 'odom'
     assert params['cmd_vel_in_topic'] == 'cmd_vel'
     assert params['cmd_vel_out_topic'] == 'cmd_vel_safe'
-    assert params['polygons'] == ['Slowdown', 'Stop']
+    assert params['transform_tolerance'] == 0.3
+    assert params['source_timeout'] == 1.0
+    assert params['polygons'] == ['Approach']
     assert params['observation_sources'] == ['scan']
     assert params['scan'] == {
         'type': 'scan',
         'topic': '/scan',
         'enabled': True,
     }
-
-    assert params['Slowdown']['action_type'] == 'slowdown'
-    assert params['Slowdown']['slowdown_ratio'] == 0.3
-    assert params['Slowdown']['points'] == [0.95, 0.32, 0.95, -0.32, 0.45, -0.32, 0.45, 0.32]
-    assert params['Slowdown']['max_points'] == 8
-    assert params['Stop']['action_type'] == 'stop'
-    assert params['Stop']['points'] == [0.65, 0.24, 0.65, -0.24, 0.30, -0.24, 0.30, 0.24]
-    assert params['Stop']['max_points'] == 6
+    assert params['Approach'] == {
+        'type': 'polygon',
+        'action_type': 'approach',
+        'footprint_topic': '/local_costmap/published_footprint',
+        'time_before_collision': 1.0,
+        'simulation_time_step': 0.1,
+        'max_points': 6,
+        'visualize': True,
+        'polygon_pub_topic': 'collision_monitor/approach_polygon',
+        'enabled': True,
+    }
 
 
 def test_frontier_explorer_uses_global_costmap_snap_parameters():
@@ -457,6 +497,24 @@ def test_frontier_explorer_uses_global_costmap_snap_parameters():
     assert params['frontier_fallback_snap_radius'] == 1.0
     assert params['goal_clearance_radius'] == 0.1
     assert 'direct_frontier_goal_search_radius' not in params
+
+
+def test_bt_navigator_loads_escape_obstacle_plugin():
+    with (REPO_ROOT / 'config/nav2_params_2d.yaml').open() as stream:
+        config = yaml.safe_load(stream)
+
+    plugins = config['bt_navigator']['ros__parameters']['plugin_lib_names']
+
+    assert 'g1_escape_obstacle_action_bt_node' in plugins
+
+
+def test_embedded_recovery_trees_use_escape_obstacle_action():
+    for relative_path in (
+        'behavior_trees/navigate_to_pose_w_g1_embedded_recovery.xml',
+        'behavior_trees/navigate_through_poses_w_g1_embedded_recovery.xml',
+    ):
+        assert _xml_contains_tag(relative_path, 'EscapeObstacle')
+        assert _xml_contains_tag(relative_path, 'CancelControl')
 
 
 def test_nav2_costmaps_use_tuned_circular_robot_radii():
@@ -486,7 +544,19 @@ def test_dwb_follow_path_raises_obstacle_avoidance_priority():
 
     follow_path = config['controller_server']['ros__parameters']['FollowPath']
 
+    assert follow_path['max_vel_y'] == 0.0
+    assert follow_path['vy_samples'] == 1
     assert follow_path['BaseObstacle.scale'] == 0.2
+
+
+def test_velocity_smoother_clamps_y_velocity_to_zero():
+    with (REPO_ROOT / 'config/nav2_params_2d.yaml').open() as stream:
+        config = yaml.safe_load(stream)
+
+    params = config['velocity_smoother']['ros__parameters']
+
+    assert params['max_velocity'][1] == 0.0
+    assert params['min_velocity'][1] == 0.0
 
 
 def test_bt_navigator_loads_escape_obstacle_plugin():
@@ -537,6 +607,22 @@ def test_navigate_to_pose_embedded_recovery_uses_escape_obstacle():
     }
     for key, value in required_attributes.items():
         assert escape_obstacle.attrib.get(key) == value
+
+
+def test_explore_fail_fast_tree_keeps_periodic_replanning():
+    root = ET.parse(
+        REPO_ROOT / 'behavior_trees/navigate_to_pose_w_g1_explore_fail_fast.xml'
+    ).getroot()
+    pipeline = next(
+        node
+        for node in root.iter('PipelineSequence')
+        if node.attrib.get('name') == 'ExploreNavigate'
+    )
+
+    assert pipeline[0].tag == 'RateController'
+    assert pipeline[0].attrib.get('hz') == '1.0'
+    assert [child.tag for child in pipeline[0]] == ['ComputePathToPose']
+    assert not any(node.tag == 'GoalUpdatedController' for node in pipeline.iter())
 
 
 def test_navigate_through_poses_embedded_recovery_uses_escape_obstacle():

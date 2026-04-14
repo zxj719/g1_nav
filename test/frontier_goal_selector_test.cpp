@@ -47,6 +47,22 @@ g1_nav::FrontierGoalSelectorConfig make_config()
   return config;
 }
 
+g1_nav::FrontierTarget make_target(
+  double anchor_x,
+  double anchor_y,
+  double goal_x,
+  double goal_y,
+  int size = 10,
+  double heuristic_distance = 0.0)
+{
+  const auto frontier = make_frontier(
+    anchor_x, anchor_y, 0.0, heuristic_distance, size);
+  return g1_nav::FrontierTarget{
+    frontier,
+    {anchor_x, anchor_y},
+    {goal_x, goal_y}};
+}
+
 }  // namespace
 
 TEST(FrontierGoalSelector, UsesAnchorWhenAnchorIsAlreadyAdmissible)
@@ -115,6 +131,45 @@ TEST(FrontierGoalSelector, SuppressesLowerRankedFrontiersInsideSnapRadius)
   EXPECT_DOUBLE_EQ(kept[0].centroid_y, 1.0);
   EXPECT_DOUBLE_EQ(kept[1].centroid_x, 3.5);
   EXPECT_DOUBLE_EQ(kept[1].centroid_y, 3.5);
+}
+
+TEST(FrontierGoalSelector, SortsTargetsByNearestLiveGoalDistance)
+{
+  std::vector<g1_nav::FrontierTarget> targets{
+    make_target(1.0, 0.0, 6.0, 0.0, 10, 1.0),
+    make_target(4.0, 0.0, 2.0, 0.0, 10, 4.0),
+    make_target(3.0, 0.0, 4.0, 0.0, 10, 3.0),
+  };
+
+  g1_nav::sort_frontier_targets_for_selection(targets, {0.0, 0.0}, 1.0, 0.0);
+
+  ASSERT_EQ(targets.size(), 3u);
+  EXPECT_DOUBLE_EQ(targets[0].anchor_xy.first, 4.0);
+  EXPECT_DOUBLE_EQ(targets[0].goal_xy.first, 2.0);
+  EXPECT_DOUBLE_EQ(targets[1].anchor_xy.first, 3.0);
+  EXPECT_DOUBLE_EQ(targets[1].goal_xy.first, 4.0);
+  EXPECT_DOUBLE_EQ(targets[2].anchor_xy.first, 1.0);
+  EXPECT_DOUBLE_EQ(targets[2].goal_xy.first, 6.0);
+}
+
+TEST(FrontierGoalSelector, SuppressesLowerRankedTargetsInsideSnapRadiusAfterGoalSorting)
+{
+  std::vector<g1_nav::FrontierTarget> targets{
+    make_target(1.0, 1.0, 5.0, 1.0, 10, 1.0),
+    make_target(1.6, 1.0, 0.5, 1.0, 10, 1.6),
+    make_target(4.0, 4.0, 2.0, 4.0, 10, 4.0),
+  };
+
+  g1_nav::sort_frontier_targets_for_selection(targets, {0.0, 0.0}, 1.0, 0.0);
+  const auto kept = g1_nav::suppress_frontier_targets_by_radius(targets, 1.0);
+
+  ASSERT_EQ(kept.size(), 2u);
+  EXPECT_DOUBLE_EQ(kept[0].anchor_xy.first, 1.6);
+  EXPECT_DOUBLE_EQ(kept[0].anchor_xy.second, 1.0);
+  EXPECT_DOUBLE_EQ(kept[0].goal_xy.first, 0.5);
+  EXPECT_DOUBLE_EQ(kept[0].goal_xy.second, 1.0);
+  EXPECT_DOUBLE_EQ(kept[1].anchor_xy.first, 4.0);
+  EXPECT_DOUBLE_EQ(kept[1].anchor_xy.second, 4.0);
 }
 
 TEST(FrontierGoalSelector, RejectsRingCandidateWhoseClearanceDiskTouchesCostmapInflation)

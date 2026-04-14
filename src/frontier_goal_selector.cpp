@@ -16,6 +16,17 @@ double distance_xy(
   return std::hypot(a.first - b.first, a.second - b.second);
 }
 
+double frontier_target_score(
+  const FrontierTarget & target,
+  const std::pair<double, double> & robot_xy,
+  double distance_weight,
+  double size_weight)
+{
+  return
+    -distance_xy(target.goal_xy, robot_xy) * std::max(0.0, distance_weight) +
+    static_cast<double>(target.frontier.size) * std::max(0.0, size_weight);
+}
+
 bool is_goal_admissible(
   const GridMapView & grid_map,
   const GridMapView & global_costmap,
@@ -116,6 +127,70 @@ std::vector<Frontier> suppress_frontiers_by_radius(
 
     if (!suppressed) {
       kept.push_back(frontier);
+    }
+  }
+
+  return kept;
+}
+
+void sort_frontier_targets_for_selection(
+  std::vector<FrontierTarget> & targets,
+  const std::pair<double, double> & robot_xy,
+  double distance_weight,
+  double size_weight)
+{
+  std::sort(
+    targets.begin(), targets.end(),
+    [&robot_xy, distance_weight, size_weight](const FrontierTarget & a, const FrontierTarget & b) {
+      const double score_a =
+        frontier_target_score(a, robot_xy, distance_weight, size_weight);
+      const double score_b =
+        frontier_target_score(b, robot_xy, distance_weight, size_weight);
+      if (std::abs(score_a - score_b) > 1e-9) {
+        return score_a > score_b;
+      }
+
+      const double goal_distance_a = distance_xy(a.goal_xy, robot_xy);
+      const double goal_distance_b = distance_xy(b.goal_xy, robot_xy);
+      if (std::abs(goal_distance_a - goal_distance_b) > 1e-9) {
+        return goal_distance_a < goal_distance_b;
+      }
+
+      const double anchor_distance_a = distance_xy(a.anchor_xy, robot_xy);
+      const double anchor_distance_b = distance_xy(b.anchor_xy, robot_xy);
+      if (std::abs(anchor_distance_a - anchor_distance_b) > 1e-9) {
+        return anchor_distance_a < anchor_distance_b;
+      }
+
+      if (a.frontier.size != b.frontier.size) {
+        return a.frontier.size > b.frontier.size;
+      }
+
+      return a.frontier.heuristic_distance < b.frontier.heuristic_distance;
+    });
+}
+
+std::vector<FrontierTarget> suppress_frontier_targets_by_radius(
+  const std::vector<FrontierTarget> & targets,
+  double suppression_radius)
+{
+  std::vector<FrontierTarget> kept;
+  kept.reserve(targets.size());
+
+  for (const auto & target : targets) {
+    bool suppressed = false;
+    for (const auto & kept_target : kept) {
+      if (std::hypot(
+          target.anchor_xy.first - kept_target.anchor_xy.first,
+          target.anchor_xy.second - kept_target.anchor_xy.second) <= suppression_radius)
+      {
+        suppressed = true;
+        break;
+      }
+    }
+
+    if (!suppressed) {
+      kept.push_back(target);
     }
   }
 

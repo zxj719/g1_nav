@@ -1,18 +1,16 @@
 <!--
   G1 exploration-specific NavigateToPose tree:
   - Fail fast when global planning cannot produce a path
-  - Replan immediately when the goal is updated
+  - Replan periodically while tracking so dynamic obstacles can trigger a new path
   - Prefer recovery + replanning over immediate abort when local control
     detects embedding / stuck conditions
 -->
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
     <PipelineSequence name="ExploreNavigate">
-      <GoalUpdatedController>
-        <RateController hz="1.0">
-          <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
-        </RateController>
-      </GoalUpdatedController>
+      <RateController hz="1.0">
+        <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+      </RateController>
 
       <RecoveryNode number_of_retries="4" name="TrackPath">
         <ReactiveSequence name="TrackPathMain">

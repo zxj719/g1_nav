@@ -27,6 +27,16 @@ std::vector<Frontier> suppress_frontiers_by_radius(
   const std::vector<Frontier> & frontiers,
   double suppression_radius);
 
+void sort_frontier_targets_for_selection(
+  std::vector<FrontierTarget> & targets,
+  const std::pair<double, double> & robot_xy,
+  double distance_weight,
+  double size_weight);
+
+std::vector<FrontierTarget> suppress_frontier_targets_by_radius(
+  const std::vector<FrontierTarget> & targets,
+  double suppression_radius);
+
 std::optional<FrontierTarget> select_frontier_target(
   const GridMapView & grid_map,
   const GridMapView & global_costmap,

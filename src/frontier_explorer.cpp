@@ -84,11 +84,6 @@ double distance_xy(
   return std::hypot(a.first - b.first, a.second - b.second);
 }
 
-double clamp01(double value)
-{
-  return std::clamp(value, 0.0, 1.0);
-}
-
 geometry_msgs::msg::Point make_marker_point(double x, double y, double z)
 {
   geometry_msgs::msg::Point point;
@@ -133,10 +128,8 @@ public:
     declare_parameter("frontier_fallback_snap_radius", 1.0);
     declare_parameter("goal_clearance_radius", 0.35);
     declare_parameter("goal_update_min_distance", 0.4);
-    declare_parameter("frontier_prev_target_weight", 4.0);
-    declare_parameter("frontier_robot_distance_weight", 2.0);
-    declare_parameter("frontier_forward_alignment_weight", 1.0);
-    declare_parameter("frontier_size_weight", 0.25);
+    declare_parameter("frontier_distance_weight", 1.0);
+    declare_parameter("frontier_size_weight", 0.0);
 
     planner_freq_ = std::max(0.05, get_parameter("planner_frequency").as_double());
     frontier_search_config_.min_frontier_size = std::max(
@@ -147,6 +140,10 @@ public:
       static_cast<int>(get_parameter("costmap_search_threshold").as_int()), 0, 100);
     frontier_search_config_.frontier_update_radius = std::max(
       0.0, get_parameter("frontier_update_radius").as_double());
+    frontier_search_config_.frontier_distance_weight = std::max(
+      0.0, get_parameter("frontier_distance_weight").as_double());
+    frontier_search_config_.frontier_size_weight = std::max(
+      0.0, get_parameter("frontier_size_weight").as_double());
     robot_base_frame_ = get_parameter("robot_base_frame").as_string();
     odom_frame_ = get_parameter("odom_frame").as_string();
     odom_topic_ = get_parameter("odom_topic").as_string();
@@ -168,14 +165,6 @@ public:
       0.0, get_parameter("goal_clearance_radius").as_double());
     goal_update_min_distance_ = std::max(
       0.05, get_parameter("goal_update_min_distance").as_double());
-    frontier_prev_target_weight_ = std::max(
-      0.0, get_parameter("frontier_prev_target_weight").as_double());
-    frontier_robot_distance_weight_ = std::max(
-      0.0, get_parameter("frontier_robot_distance_weight").as_double());
-    frontier_forward_alignment_weight_ = std::max(
-      0.0, get_parameter("frontier_forward_alignment_weight").as_double());
-    frontier_size_weight_ = std::max(
-      0.0, get_parameter("frontier_size_weight").as_double());
 
     rclcpp::QoS map_qos(rclcpp::KeepLast(1));
     map_qos.reliable();
@@ -293,11 +282,6 @@ private:
       blacklisted_.clear();
       active_frontiers = filter_frontiers(observed_frontiers);
     }
-    if (!active_frontiers.empty()) {
-      sort_frontiers_for_selection(active_frontiers, *robot_xy);
-      active_frontiers = g1_nav::suppress_frontiers_by_radius(
-        active_frontiers, frontier_snap_radius_);
-    }
 
     g1_nav::FrontierGoalSelectorConfig selector_config;
     selector_config.snap_radius = frontier_snap_radius_;
@@ -306,17 +290,41 @@ private:
 
     std::vector<FrontierTarget> targets;
     targets.reserve(active_frontiers.size());
+    std::vector<Frontier> rejected_frontiers;
+    rejected_frontiers.reserve(active_frontiers.size());
     for (const auto & frontier : active_frontiers) {
       const auto target = g1_nav::select_frontier_target(
         grid, global_costmap, frontier, *robot_xy, selector_config);
       if (!target) {
-        blacklist_point(
-          frontier.centroid_x,
-          frontier.centroid_y,
-          "No admissible navigation goal on the snap ring");
+        rejected_frontiers.push_back(frontier);
         continue;
       }
       targets.push_back(*target);
+    }
+
+    g1_nav::sort_frontier_targets_for_selection(
+      targets,
+      *robot_xy,
+      frontier_search_config_.frontier_distance_weight,
+      frontier_search_config_.frontier_size_weight);
+    targets = g1_nav::suppress_frontier_targets_by_radius(targets, frontier_snap_radius_);
+
+    for (const auto & frontier : rejected_frontiers) {
+      const bool suppressed_by_live_target = std::any_of(
+        targets.begin(), targets.end(),
+        [&frontier, this](const FrontierTarget & target) {
+          return std::hypot(
+            frontier.centroid_x - target.anchor_xy.first,
+            frontier.centroid_y - target.anchor_xy.second) <= frontier_snap_radius_;
+        });
+      if (suppressed_by_live_target) {
+        continue;
+      }
+
+      blacklist_point(
+        frontier.centroid_x,
+        frontier.centroid_y,
+        "No admissible navigation goal on the snap ring");
     }
 
     // Targets are built from the full current frontier set each cycle.
@@ -328,7 +336,8 @@ private:
           target.anchor_xy,
           *robot_xy,
           frontier_reached_radius(),
-          frontier_completion_match_radius())) {
+          frontier_completion_match_radius()))
+      {
         complete_frontier(target.anchor_xy.first, target.anchor_xy.second);
         continue;
       }
@@ -345,33 +354,14 @@ private:
       }
     }
 
+    if (!g1_nav::should_accept_new_frontier_goal_while_navigating(navigating_)) {
+      return;
+    }
+
     if (selected_target) {
       const auto & target = *selected_target;
-      if (navigating_ && !should_preempt_navigation(target.anchor_xy, target.goal_xy)) {
-        return;
-      }
-
-      if (navigating_) {
-        RCLCPP_INFO(
-          get_logger(),
-          "Preempting frontier goal: frontier (%.2f, %.2f) -> (%.2f, %.2f), nav goal (%.2f, %.2f) -> (%.2f, %.2f)",
-          current_frontier_ ? current_frontier_->first : std::numeric_limits<double>::quiet_NaN(),
-          current_frontier_ ? current_frontier_->second : std::numeric_limits<double>::quiet_NaN(),
-          target.anchor_xy.first,
-          target.anchor_xy.second,
-          current_goal_ ? current_goal_->first : std::numeric_limits<double>::quiet_NaN(),
-          current_goal_ ? current_goal_->second : std::numeric_limits<double>::quiet_NaN(),
-          target.goal_xy.first,
-          target.goal_xy.second);
-        request_navigation_preempt(
-          target.anchor_xy,
-          target.goal_xy,
-          compute_goal_yaw(*robot_xy, target.goal_xy),
-          false);
-        return;
-      }
-
       current_frontier_ = target.anchor_xy;
+      current_frontier_retry_used_ = false;
       navigate_to(
         target.goal_xy.first,
         target.goal_xy.second,
@@ -524,9 +514,6 @@ private:
     nav_client_->async_send_goal(goal, options);
 
     current_goal_ = std::make_pair(x, y);
-    if (!returning_to_initial_pose_ && current_frontier_) {
-      last_frontier_target_ = *current_frontier_;
-    }
     navigating_ = true;
     cancel_requested_ = false;
     progress_timeout_cancel_requested_ = false;
@@ -566,6 +553,7 @@ private:
     const auto pending_goal = *pending_goal_;
     pending_goal_.reset();
     current_frontier_ = pending_goal.frontier_xy;
+    current_frontier_retry_used_ = false;
     returning_to_initial_pose_ = pending_goal.returning_to_initial_pose;
     navigate_to(
       pending_goal.goal_xy.first,
@@ -614,6 +602,9 @@ private:
       if (g1_nav::should_blacklist_on_navigation_abort(
           preempt_requested_, pending_goal_.has_value()))
       {
+        if (retry_current_frontier("Navigation aborted by Nav2")) {
+          return;
+        }
         RCLCPP_WARN(get_logger(), "Navigation aborted by Nav2");
         blacklist_current_frontier("Navigation aborted by Nav2");
       } else {
@@ -625,7 +616,11 @@ private:
       if (preempt_requested_) {
         RCLCPP_INFO(get_logger(), "Navigation canceled for goal handoff");
       } else if (progress_timeout_cancel_requested_) {
+        if (retry_current_frontier("Navigation canceled after progress timeout")) {
+          return;
+        }
         RCLCPP_WARN(get_logger(), "Navigation canceled after progress timeout");
+        blacklist_current_frontier("No progress timeout");
       } else {
         RCLCPP_INFO(get_logger(), "Navigation canceled");
       }
@@ -673,8 +668,42 @@ private:
       "No progress for %.0fs - canceling the current frontier goal",
       elapsed);
     progress_timeout_cancel_requested_ = true;
-    blacklist_current_frontier("No progress timeout");
     cancel_current_goal();
+  }
+
+  bool retry_current_frontier(const std::string & reason)
+  {
+    if (!current_frontier_) {
+      return false;
+    }
+
+    const auto robot_xy = get_robot_position();
+    if (!robot_xy) {
+      return false;
+    }
+
+    const auto retry_target = build_retry_target_for_current_frontier(*robot_xy);
+    if (!g1_nav::should_retry_same_frontier_after_failure(
+        current_frontier_.has_value(),
+        current_frontier_retry_used_,
+        retry_target.has_value()))
+    {
+      return false;
+    }
+
+    RCLCPP_WARN(
+      get_logger(),
+      "%s; retrying the current frontier once",
+      reason.c_str());
+
+    const auto target = *retry_target;
+    const auto yaw = compute_goal_yaw(*robot_xy, target.goal_xy);
+
+    clear_navigation_state();
+    current_frontier_retry_used_ = true;
+    current_frontier_ = target.anchor_xy;
+    navigate_to(target.goal_xy.first, target.goal_xy.second, yaw);
+    return true;
   }
 
   bool should_preempt_navigation(
@@ -718,12 +747,42 @@ private:
     cancel_requested_ = false;
     progress_timeout_cancel_requested_ = false;
     preempt_requested_ = false;
+    current_frontier_retry_used_ = false;
     nav_goal_handle_.reset();
     current_goal_.reset();
     current_frontier_.reset();
     returning_to_initial_pose_ = false;
     last_progress_time_.reset();
     last_robot_pos_.reset();
+  }
+
+  std::optional<FrontierTarget> build_retry_target_for_current_frontier(
+    const std::pair<double, double> & robot_xy) const
+  {
+    if (!current_frontier_) {
+      return std::nullopt;
+    }
+
+    const auto grid = make_grid_view();
+    const auto global_costmap = make_global_costmap_view();
+    if (!grid.valid() || !global_costmap.valid()) {
+      return std::nullopt;
+    }
+
+    Frontier retry_frontier;
+    retry_frontier.size = 1;
+    retry_frontier.centroid_x = current_frontier_->first;
+    retry_frontier.centroid_y = current_frontier_->second;
+    retry_frontier.min_distance = distance_xy(robot_xy, *current_frontier_);
+    retry_frontier.heuristic_distance = retry_frontier.min_distance;
+
+    g1_nav::FrontierGoalSelectorConfig selector_config;
+    selector_config.snap_radius = frontier_snap_radius_;
+    selector_config.fallback_snap_radius = frontier_fallback_snap_radius_;
+    selector_config.goal_clearance_radius = goal_clearance_radius_;
+
+    return g1_nav::select_frontier_target(
+      grid, global_costmap, retry_frontier, robot_xy, selector_config);
   }
 
   g1_nav::GridMapView make_grid_view() const
@@ -828,90 +887,6 @@ private:
       active_frontiers.push_back(frontier);
     }
     return active_frontiers;
-  }
-
-  std::optional<std::pair<double, double>> selection_reference_target() const
-  {
-    if (current_frontier_) {
-      return current_frontier_;
-    }
-    return last_frontier_target_;
-  }
-
-  void sort_frontiers_for_selection(
-    std::vector<Frontier> & frontiers,
-    const std::pair<double, double> & robot_xy) const
-  {
-    if (frontiers.empty()) {
-      return;
-    }
-
-    const auto reference_target = selection_reference_target();
-    const double prev_weight = reference_target ? frontier_prev_target_weight_ : 0.0;
-    const double alignment_weight = robot_yaw_ ? frontier_forward_alignment_weight_ : 0.0;
-
-    double max_reference_distance = 0.0;
-    double max_robot_distance = 0.0;
-    int max_size = 0;
-    for (const auto & frontier : frontiers) {
-      if (reference_target) {
-        max_reference_distance = std::max(
-          max_reference_distance,
-          distance_xy(
-            std::make_pair(frontier.centroid_x, frontier.centroid_y),
-            *reference_target));
-      }
-      max_robot_distance = std::max(max_robot_distance, frontier.heuristic_distance);
-      max_size = std::max(max_size, frontier.size);
-    }
-
-    for (auto & frontier : frontiers) {
-      double prev_target_score = 0.0;
-      if (prev_weight > 0.0) {
-        if (max_reference_distance <= 1e-6) {
-          prev_target_score = 1.0;
-        } else {
-          prev_target_score = 1.0 - clamp01(
-            distance_xy(
-              std::make_pair(frontier.centroid_x, frontier.centroid_y),
-              *reference_target) / max_reference_distance);
-        }
-      }
-
-      const double robot_distance_score =
-        max_robot_distance <= 1e-6 ? 1.0 :
-        1.0 - clamp01(frontier.heuristic_distance / max_robot_distance);
-
-      double alignment_score = 0.5;
-      if (alignment_weight > 0.0) {
-        const double heading_to_frontier = std::atan2(
-          frontier.centroid_y - robot_xy.second,
-          frontier.centroid_x - robot_xy.first);
-        alignment_score = 0.5 * (std::cos(heading_to_frontier - *robot_yaw_) + 1.0);
-      }
-
-      const double size_score =
-        max_size <= 0 ? 1.0 :
-        static_cast<double>(frontier.size) / static_cast<double>(max_size);
-
-      frontier.cost =
-        prev_weight * prev_target_score +
-        frontier_robot_distance_weight_ * robot_distance_score +
-        alignment_weight * alignment_score +
-        frontier_size_weight_ * size_score;
-    }
-
-    std::sort(
-      frontiers.begin(), frontiers.end(),
-      [](const Frontier & a, const Frontier & b) {
-        if (a.cost != b.cost) {
-          return a.cost > b.cost;
-        }
-        if (a.heuristic_distance != b.heuristic_distance) {
-          return a.heuristic_distance < b.heuristic_distance;
-        }
-        return a.size > b.size;
-      });
   }
 
   void blacklist_current_frontier(const std::string & reason)
@@ -1098,10 +1073,6 @@ private:
   double frontier_fallback_snap_radius_{1.0};
   double goal_clearance_radius_{0.35};
   double goal_update_min_distance_{0.4};
-  double frontier_prev_target_weight_{4.0};
-  double frontier_robot_distance_weight_{2.0};
-  double frontier_forward_alignment_weight_{1.0};
-  double frontier_size_weight_{0.25};
 
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr global_costmap_sub_;
@@ -1125,6 +1096,7 @@ private:
   bool returning_to_initial_pose_{false};
   bool returned_to_initial_pose_{false};
   bool preempt_requested_{false};
+  bool current_frontier_retry_used_{false};
   int goal_seq_{0};
 
   std::optional<std::pair<double, double>> odom_pose_;
@@ -1138,7 +1110,6 @@ private:
   builtin_interfaces::msg::Time robot_pose_stamp_;
   std::optional<std::pair<double, double>> current_frontier_;
   std::optional<std::pair<double, double>> current_goal_;
-  std::optional<std::pair<double, double>> last_frontier_target_;
   std::optional<PendingNavigationGoal> pending_goal_;
   std::optional<std::pair<double, double>> last_robot_pos_;
   std::optional<rclcpp::Time> last_progress_time_;

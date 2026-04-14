@@ -53,7 +53,7 @@ frontier_explorer:
     # Weighted frontier evaluation: score = -distance * distance_weight + size * size_weight
     # Higher score wins.
     frontier_distance_weight: 1.0
-    frontier_size_weight: 0.2
+    frontier_size_weight: 0.0
 
     # If no movement is detected within this many seconds during navigation,
     # cancel the current goal and blacklist that frontier.

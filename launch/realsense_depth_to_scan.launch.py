@@ -1,88 +1,77 @@
 #!/usr/bin/env python3
-"""Standalone Realsense depth-to-LaserScan bridge for Nav2 local obstacle use."""
+"""Standalone Realsense camera + depth-to-LaserScan launch for Nav2 local obstacle use."""
 
+from pathlib import Path
+
+from ament_index_python.packages import get_package_share_directory
+import yaml
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 
 
+def _config_path():
+    return Path(__file__).resolve().parents[1] / 'config' / 'realsense_depth_to_scan.yaml'
+
+
+def _load_realsense_bridge_config():
+    config_path = _config_path()
+    with config_path.open() as stream:
+        config = yaml.safe_load(stream) or {}
+
+    try:
+        return (
+            config['realsense_camera']['launch_arguments'],
+            config['depth_to_scan']['remappings'],
+            config['depth_to_scan']['parameters'],
+        )
+    except KeyError as exc:
+        raise KeyError(f'Missing required key {exc.args[0]!r} in {config_path}') from exc
+
+
+def _stringify_launch_argument_value(value):
+    if isinstance(value, bool):
+        return 'true' if value else 'false'
+    if value == '':
+        return "''"
+    return str(value)
+
+
+def _rs_launch_path():
+    return (
+        Path(get_package_share_directory('realsense2_camera'))
+        / 'launch'
+        / 'rs_launch.py'
+    )
+
+
 def generate_launch_description():
-    use_sim_time = LaunchConfiguration('use_sim_time')
-    realsense_depth_image_topic = LaunchConfiguration('realsense_depth_image_topic')
-    realsense_depth_camera_info_topic = LaunchConfiguration('realsense_depth_camera_info_topic')
-    realsense_scan_topic = LaunchConfiguration('realsense_scan_topic')
-    realsense_scan_output_frame = LaunchConfiguration('realsense_scan_output_frame')
-    realsense_scan_time = LaunchConfiguration('realsense_scan_time')
-    realsense_scan_range_min = LaunchConfiguration('realsense_scan_range_min')
-    realsense_scan_range_max = LaunchConfiguration('realsense_scan_range_max')
-    realsense_scan_height = LaunchConfiguration('realsense_scan_height')
+    camera_launch_arguments, depth_remappings, depth_parameters = (
+        _load_realsense_bridge_config()
+    )
+
+    rs_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(str(_rs_launch_path())),
+        launch_arguments={
+            key: _stringify_launch_argument_value(value)
+            for key, value in camera_launch_arguments.items()
+        }.items(),
+    )
 
     realsense_depth_to_scan_node = Node(
         package='depthimage_to_laserscan',
         executable='depthimage_to_laserscan_node',
         name='realsense_depth_to_scan',
         output='screen',
-        remappings=[
-            ('depth', realsense_depth_image_topic),
-            ('depth_camera_info', realsense_depth_camera_info_topic),
-            ('scan', realsense_scan_topic),
-        ],
+        remappings=list(depth_remappings.items()),
         parameters=[{
-            'use_sim_time': use_sim_time,
-            'output_frame': realsense_scan_output_frame,
-            'scan_time': realsense_scan_time,
-            'range_min': realsense_scan_range_min,
-            'range_max': realsense_scan_range_max,
-            'scan_height': realsense_scan_height,
+            'use_sim_time': False,
+            **depth_parameters,
         }],
     )
 
     return LaunchDescription([
-        DeclareLaunchArgument(
-            'use_sim_time',
-            default_value='false',
-            description='Use simulation clock.',
-        ),
-        DeclareLaunchArgument(
-            'realsense_depth_image_topic',
-            default_value='/camera/camera/depth/image_rect_raw',
-            description='Depth image topic consumed by depthimage_to_laserscan.',
-        ),
-        DeclareLaunchArgument(
-            'realsense_depth_camera_info_topic',
-            default_value='/camera/camera/depth/camera_info',
-            description='Depth camera info topic consumed by depthimage_to_laserscan.',
-        ),
-        DeclareLaunchArgument(
-            'realsense_scan_topic',
-            default_value='/scan',
-            description='LaserScan topic published by the Realsense depth bridge.',
-        ),
-        DeclareLaunchArgument(
-            'realsense_scan_output_frame',
-            default_value='camera_depth_frame',
-            description='Frame id assigned to the LaserScan generated from Realsense depth.',
-        ),
-        DeclareLaunchArgument(
-            'realsense_scan_time',
-            default_value='0.2',
-            description='scan_time parameter passed to depthimage_to_laserscan.',
-        ),
-        DeclareLaunchArgument(
-            'realsense_scan_range_min',
-            default_value='0.2',
-            description='Minimum valid range used when converting Realsense depth to LaserScan.',
-        ),
-        DeclareLaunchArgument(
-            'realsense_scan_range_max',
-            default_value='2.5',
-            description='Maximum valid range used when converting Realsense depth to LaserScan.',
-        ),
-        DeclareLaunchArgument(
-            'realsense_scan_height',
-            default_value='3',
-            description='Number of depth-image rows fused into the output LaserScan.',
-        ),
+        rs_launch,
         realsense_depth_to_scan_node,
     ])
