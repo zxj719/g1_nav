@@ -261,6 +261,26 @@ if(BUILD_TESTING)
     test/test_headless_navigation_script.py
   )
 
+  ament_add_pytest_test(
+    navigation_executor_packaging_test
+    test/test_navigation_executor_packaging.py
+  )
+
+  ament_add_pytest_test(
+    navigation_executor_protocol_test
+    test/test_navigation_executor_protocol.py
+  )
+
+  ament_add_pytest_test(
+    navigation_executor_poi_test
+    test/test_navigation_executor_poi.py
+  )
+
+  ament_add_pytest_test(
+    navigation_executor_runtime_test
+    test/test_navigation_executor_runtime.py
+  )
+
   ament_add_gtest(
     scan_priority_geometry_test
     test/scan_priority_geometry_test.cpp

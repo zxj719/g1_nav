@@ -103,14 +103,6 @@ def build_mark_poi_success_event(
         "poi": {
             "id": poi.poi_id,
             "name": poi.name,
-            "frame_id": poi.map_pose.frame_id,
-            "position": {
-                "x": poi.map_pose.x,
-                "y": poi.map_pose.y,
-                "z": poi.map_pose.z,
-            },
-            "yaw": poi.map_pose.yaw,
-            "orientation": poi.map_pose.orientation(),
         },
     }
 
