@@ -11,8 +11,11 @@ find_package(nav2_behavior_tree REQUIRED)
 find_package(nav2_costmap_2d REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
+find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
@@ -103,6 +106,32 @@ ament_target_dependencies(
   tf2_ros
 )
 
+add_library(g1_nav_scan_priority_layer SHARED
+  src/scan_priority_layer.cpp
+  src/scan_priority_geometry.cpp
+)
+target_compile_features(g1_nav_scan_priority_layer PUBLIC cxx_std_17)
+target_include_directories(
+  g1_nav_scan_priority_layer
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+ament_target_dependencies(
+  g1_nav_scan_priority_layer
+  geometry_msgs
+  nav2_costmap_2d
+  pluginlib
+  rclcpp
+  rclcpp_lifecycle
+  sensor_msgs
+  tf2
+  tf2_geometry_msgs
+  tf2_ros
+  visualization_msgs
+)
+pluginlib_export_plugin_description_file(nav2_costmap_2d costmap_plugins.xml)
+
 install(DIRECTORY
   behavior_trees
   config
@@ -114,6 +143,11 @@ install(DIRECTORY
 install(DIRECTORY
   include/
   DESTINATION include
+)
+
+install(FILES
+  costmap_plugins.xml
+  DESTINATION share/${PROJECT_NAME}
 )
 
 install(PROGRAMS
@@ -142,6 +176,13 @@ install(TARGETS
 
 install(TARGETS
   g1_escape_obstacle_action_bt_node
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION lib
+)
+
+install(TARGETS
+  g1_nav_scan_priority_layer
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
   RUNTIME DESTINATION lib
@@ -208,6 +249,14 @@ if(BUILD_TESTING)
     realsense_nav2_integration_test
     test/test_realsense_nav2_integration.py
   )
+
+  ament_add_gtest(
+    scan_priority_geometry_test
+    test/scan_priority_geometry_test.cpp
+    src/scan_priority_geometry.cpp
+  )
+  target_compile_features(scan_priority_geometry_test PUBLIC cxx_std_17)
+  target_include_directories(scan_priority_geometry_test PUBLIC include)
 
   ament_add_pytest_test(
     realsense_cpu_monitor_test

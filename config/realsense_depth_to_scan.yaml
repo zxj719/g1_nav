@@ -19,9 +19,9 @@ depth_to_scan:
     depth_camera_info: /camera/camera/depth/camera_info
     scan: /scan
   parameters:
-    # Publish scans directly in the robot base frame so downstream consumers
-    # do not need a second timestamp-sensitive camera_depth_frame -> base lookup.
-    output_frame: base
+    # Preserve the camera frame geometry so downstream logic can compare the
+    # observed floor-line curve against the expected ground intersection.
+    output_frame: camera_depth_frame
     # Match the observed ~10 Hz depth update rate to reduce stale-source warnings.
     scan_time: 0.1
     range_min: 0.2

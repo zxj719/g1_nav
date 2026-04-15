@@ -153,12 +153,15 @@ def test_realsense_depth_to_scan_launch_contains_depthimage_to_laserscan_node_fr
     assert _decoded_node_parameters(node) == expected_parameters
 
 
-def test_realsense_depth_to_scan_outputs_scan_in_base_frame_at_camera_rate():
+def test_realsense_depth_to_scan_outputs_scan_in_camera_frame_for_ground_baseline():
     config = _load_yaml('config/realsense_depth_to_scan.yaml')
     params = config['depth_to_scan']['parameters']
 
-    assert params['output_frame'] == 'base'
+    assert params['output_frame'] == 'camera_depth_frame'
     assert params['scan_time'] == 0.1
+    assert params['range_min'] == 0.2
+    assert params['range_max'] == 2.5
+    assert params['scan_height'] == 3
 
 
 def test_bringup_declares_realsense_scan_bridge_argument():
@@ -396,7 +399,7 @@ def test_auto_explore_does_not_pass_realsense_bridge_parameter_arguments_through
         assert name not in launch_arguments
 
 
-def test_local_costmap_uses_scan_obstacle_layer():
+def test_local_costmap_uses_scan_priority_layer():
     with (REPO_ROOT / 'config/nav2_params_2d.yaml').open() as stream:
         config = yaml.safe_load(stream)
 
@@ -404,24 +407,22 @@ def test_local_costmap_uses_scan_obstacle_layer():
 
     assert local_costmap['plugins'] == [
         'static_layer',
-        'obstacle_layer',
+        'scan_priority_layer',
         'inflation_layer',
     ]
 
-    obstacle_layer = local_costmap['obstacle_layer']
-    assert obstacle_layer['plugin'] == 'nav2_costmap_2d::ObstacleLayer'
-    assert obstacle_layer['observation_sources'] == 'scan'
-    assert obstacle_layer['scan'] == {
-        'topic': '/scan',
-        'max_obstacle_height': 2.0,
-        'clearing': True,
-        'marking': True,
-        'data_type': 'LaserScan',
-        'inf_is_valid': True,
-        'obstacle_min_range': 0.2,
-        'obstacle_max_range': 2.5,
-        'raytrace_min_range': 0.2,
-        'raytrace_max_range': 3.0,
+    layer = local_costmap['scan_priority_layer']
+    assert layer == {
+        'plugin': 'g1_nav::ScanPriorityLayer',
+        'enabled': True,
+        'scan_topic': '/scan',
+        'sector_min_angle': -0.55,
+        'sector_max_angle': 0.55,
+        'max_range': 2.5,
+        'ground_plane_z_in_base': 0.0,
+        'obstacle_margin_m': 0.12,
+        'min_contiguous_beams': 3,
+        'debug_markers_enabled': False,
     }
 
 
@@ -452,6 +453,15 @@ def test_global_costmap_uses_scan_obstacle_layer_for_dynamic_replanning():
         'raytrace_min_range': 0.2,
         'raytrace_max_range': 3.0,
     }
+
+
+def test_package_exports_scan_priority_costmap_plugin_xml():
+    package_xml = (REPO_ROOT / 'package.xml').read_text()
+    assert 'pluginlib' in package_xml
+
+    plugin_xml = (REPO_ROOT / 'costmap_plugins.xml').read_text()
+    assert 'g1_nav::ScanPriorityLayer' in plugin_xml
+    assert 'nav2_costmap_2d::Layer' in plugin_xml
 
 
 def test_collision_monitor_uses_scan_and_safe_cmd_vel_topics():
