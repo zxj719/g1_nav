@@ -30,3 +30,10 @@ class StoredPoi:
     map_pose: PoseRecord
     odom_pose: PoseRecord
     slam_session_id: str
+
+
+@dataclass(frozen=True)
+class Transform2D:
+    x: float
+    y: float
+    yaw: float
