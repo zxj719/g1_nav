@@ -128,6 +128,12 @@ install(PROGRAMS
   RENAME monitor_nav2_frontier_cpu
 )
 
+install(PROGRAMS
+  g1_nav/navigation_executor.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME navigation_executor.py
+)
+
 install(TARGETS
   frontier_explorer_cpp
   DESTINATION lib/${PROJECT_NAME}

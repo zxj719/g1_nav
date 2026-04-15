@@ -1,0 +1,51 @@
+import importlib.util
+from pathlib import Path
+import xml.etree.ElementTree as ET
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+MODULE_PATH = REPO_ROOT / "g1_nav" / "navigation_executor.py"
+
+
+def _load_module():
+    spec = importlib.util.spec_from_file_location(
+        "g1_nav_navigation_executor",
+        MODULE_PATH,
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_navigation_executor_cli_parses_server_uri_and_store_path():
+    module = _load_module()
+
+    config, ros_args = module._parse_cli_args(
+        [
+            "--server-uri",
+            "ws://10.0.0.5:8100/ws/navigation/executor",
+            "--poi-store-file",
+            "/tmp/poi_store.yaml",
+            "--ros-args",
+            "-r",
+            "__ns:=/robot",
+        ]
+    )
+
+    assert config["server_uri"] == "ws://10.0.0.5:8100/ws/navigation/executor"
+    assert config["poi_store_file"] == "/tmp/poi_store.yaml"
+    assert ros_args == ["--ros-args", "-r", "__ns:=/robot"]
+
+
+def test_package_xml_declares_python3_websockets():
+    root = ET.parse(REPO_ROOT / "package.xml").getroot()
+    exec_depends = [node.text for node in root.findall("exec_depend")]
+
+    assert "python3-websockets" in exec_depends
+
+
+def test_cmake_installs_navigation_executor_script():
+    cmake_text = (REPO_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+
+    assert "g1_nav/navigation_executor.py" in cmake_text
+    assert "RENAME navigation_executor.py" in cmake_text
