@@ -23,7 +23,13 @@ class MarkCurrentPoiCommand:
     poi_name: str
 
 
-Command = Union[NavigateToCommand, MarkCurrentPoiCommand]
+@dataclass(frozen=True)
+class AbortNavigationCommand:
+    action: str
+    request_id: str
+
+
+Command = Union[NavigateToCommand, MarkCurrentPoiCommand, AbortNavigationCommand]
 
 
 def parse_command(payload: dict) -> Command:
@@ -43,6 +49,11 @@ def parse_command(payload: dict) -> Command:
             sub_id=int(payload["sub_id"]),
             poi_id=str(poi["id"]).strip(),
             poi_name=str(poi["name"]).strip(),
+        )
+    if action == "abort_navigation":
+        return AbortNavigationCommand(
+            action="abort_navigation",
+            request_id=str(payload["request_id"]).strip(),
         )
     raise ValueError(f"unsupported action: {action}")
 
@@ -83,4 +94,21 @@ def build_mark_poi_success_event(
             "yaw": poi.map_pose.yaw,
             "orientation": poi.map_pose.orientation(),
         },
+    }
+
+
+def build_arrived_event(request_id: str, sub_id: int) -> dict:
+    return {
+        "event_type": "on_arrived",
+        "request_id": request_id,
+        "sub_id": sub_id,
+    }
+
+
+def build_error_event(request_id: str, sub_id: int, error_message: str) -> dict:
+    return {
+        "event_type": "on_error",
+        "request_id": request_id,
+        "sub_id": sub_id,
+        "error_message": str(error_message),
     }
