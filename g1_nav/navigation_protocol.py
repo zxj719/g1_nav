@@ -1,0 +1,86 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Union
+
+from g1_nav.navigation_types import StoredPoi
+
+
+@dataclass(frozen=True)
+class NavigateToCommand:
+    action: str
+    request_id: str
+    sub_id: int
+    target_id: str
+
+
+@dataclass(frozen=True)
+class MarkCurrentPoiCommand:
+    action: str
+    request_id: str
+    sub_id: int
+    poi_id: str
+    poi_name: str
+
+
+Command = Union[NavigateToCommand, MarkCurrentPoiCommand]
+
+
+def parse_command(payload: dict) -> Command:
+    action = str(payload.get("action", "")).strip()
+    if action == "navigate_to":
+        return NavigateToCommand(
+            action="navigate_to",
+            request_id=str(payload["request_id"]).strip(),
+            sub_id=int(payload["sub_id"]),
+            target_id=str(payload["target_id"]).strip(),
+        )
+    if action == "mark_current_poi":
+        poi = payload["poi"]
+        return MarkCurrentPoiCommand(
+            action="mark_current_poi",
+            request_id=str(payload["request_id"]).strip(),
+            sub_id=int(payload["sub_id"]),
+            poi_id=str(poi["id"]).strip(),
+            poi_name=str(poi["name"]).strip(),
+        )
+    raise ValueError(f"unsupported action: {action}")
+
+
+def build_progress_event(
+    request_id: str,
+    sub_id: int,
+    remaining_distance: float,
+    status: str,
+) -> dict:
+    return {
+        "event_type": "on_progress",
+        "request_id": request_id,
+        "sub_id": sub_id,
+        "remaining_distance": round(float(remaining_distance), 3),
+        "status": status,
+    }
+
+
+def build_mark_poi_success_event(
+    request_id: str,
+    sub_id: int,
+    poi: StoredPoi,
+) -> dict:
+    return {
+        "event_type": "on_mark_poi_success",
+        "request_id": request_id,
+        "sub_id": sub_id,
+        "poi": {
+            "id": poi.poi_id,
+            "name": poi.name,
+            "frame_id": poi.map_pose.frame_id,
+            "position": {
+                "x": poi.map_pose.x,
+                "y": poi.map_pose.y,
+                "z": poi.map_pose.z,
+            },
+            "yaw": poi.map_pose.yaw,
+            "orientation": poi.map_pose.orientation(),
+        },
+    }
