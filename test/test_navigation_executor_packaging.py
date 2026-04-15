@@ -37,6 +37,22 @@ def test_navigation_executor_cli_parses_server_uri_and_store_path():
     assert ros_args == ["--ros-args", "-r", "__ns:=/robot"]
 
 
+def test_navigation_executor_help_does_not_require_runtime_imports(capsys, monkeypatch):
+    module = _load_module()
+
+    def fail_asyncio_run(_coroutine):
+        raise AssertionError("asyncio.run should not be reached for --help")
+
+    monkeypatch.setattr(module.asyncio, "run", fail_asyncio_run)
+
+    module.main(["--help"])
+
+    captured = capsys.readouterr()
+    assert "usage: navigation_executor.py" in captured.out
+    assert "--server-uri URI" in captured.out
+    assert "--poi-store-file PATH" in captured.out
+
+
 def test_package_xml_declares_python3_websockets():
     root = ET.parse(REPO_ROOT / "package.xml").getroot()
     exec_depends = [node.text for node in root.findall("exec_depend")]

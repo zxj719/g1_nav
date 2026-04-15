@@ -19,6 +19,21 @@ DEFAULT_ODOM_TOPIC = "/lightning/odometry"
 DEFAULT_SLAM_SESSION_ID = "live_session"
 
 
+def _build_help_text() -> str:
+    return "\n".join(
+        [
+            "usage: navigation_executor.py [--server-uri URI] [--poi-store-file PATH] [ROS args...]",
+            "",
+            "Robot-side WebSocket navigation executor for g1_nav.",
+            "",
+            "options:",
+            "  --server-uri URI        WebSocket endpoint for /ws/navigation/executor",
+            "  --poi-store-file PATH   Local YAML file used to persist executor-owned POIs",
+            "  -h, --help              Show this help message and exit",
+        ]
+    )
+
+
 def _parse_cli_args(raw_args):
     config = {
         "server_uri": DEFAULT_SERVER_URI,
@@ -162,6 +177,9 @@ async def main_async(raw_args):
 
 def main(args=None):
     raw_args = sys.argv[1:] if args is None else list(args)
+    if any(arg in ("-h", "--help") for arg in raw_args):
+        print(_build_help_text())
+        return
     asyncio.run(main_async(raw_args))
 
 
