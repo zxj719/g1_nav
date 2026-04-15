@@ -37,3 +37,10 @@ class Transform2D:
     x: float
     y: float
     yaw: float
+
+
+@dataclass(frozen=True)
+class CapturedPose:
+    map_pose: PoseRecord
+    odom_pose: PoseRecord
+    slam_session_id: str

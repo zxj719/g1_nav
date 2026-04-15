@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import time
 
 from g1_nav.navigation_protocol import (
     build_arrived_event,
     build_error_event,
+    build_mark_poi_ack,
+    build_mark_poi_error,
+    build_mark_poi_success_event,
     build_progress_event,
     parse_command,
 )
@@ -30,15 +34,27 @@ class ActiveTask:
 
 
 class NavigationExecutorCore:
-    def __init__(self, bridge, pose_provider, poi_store):
+    def __init__(
+        self,
+        bridge,
+        pose_provider,
+        poi_store,
+        pose_stale_after_sec: float = 0.5,
+        now_fn=None,
+    ):
         self.bridge = bridge
         self.pose_provider = pose_provider
         self.poi_store = poi_store
+        self.pose_stale_after_sec = pose_stale_after_sec
+        self.now_fn = now_fn or (lambda: time.time())
         self.state = ExecutorState.IDLE
         self.active_task: ActiveTask | None = None
 
     async def handle_message(self, payload: dict) -> list[dict]:
         command = parse_command(payload)
+        if command.action == "update_poi_list":
+            self.poi_store.apply_semantic_directory(command.poi_list)
+            return []
         if command.action == "navigate_to":
             poi = self.poi_store.get_required(command.target_id)
             if self.active_task is not None:
@@ -70,6 +86,33 @@ class NavigationExecutorCore:
             )
             self.active_task = None
             return [paused]
+        if command.action == "mark_current_poi":
+            outbound = [build_mark_poi_ack(command.request_id, command.sub_id)]
+            captured = await self.pose_provider.capture_for_poi()
+            if self.now_fn() - captured.map_pose.stamp_sec > self.pose_stale_after_sec:
+                outbound.append(
+                    build_mark_poi_error(
+                        command.request_id,
+                        command.sub_id,
+                        "当前位置位姿数据过期",
+                    )
+                )
+                return outbound
+            stored = self.poi_store.upsert_marked_poi(
+                poi_id=command.poi_id,
+                name=command.poi_name,
+                map_pose=captured.map_pose,
+                odom_pose=captured.odom_pose,
+                slam_session_id=captured.slam_session_id,
+            )
+            outbound.append(
+                build_mark_poi_success_event(
+                    command.request_id,
+                    command.sub_id,
+                    stored,
+                )
+            )
+            return outbound
         raise ValueError(f"unsupported command in core: {command.action}")
 
     async def handle_bridge_event(self, event: dict) -> list[dict]:

@@ -29,7 +29,19 @@ class AbortNavigationCommand:
     request_id: str
 
 
-Command = Union[NavigateToCommand, MarkCurrentPoiCommand, AbortNavigationCommand]
+@dataclass(frozen=True)
+class UpdatePoiListCommand:
+    action: str
+    version: int
+    poi_list: list[dict]
+
+
+Command = Union[
+    NavigateToCommand,
+    MarkCurrentPoiCommand,
+    AbortNavigationCommand,
+    UpdatePoiListCommand,
+]
 
 
 def parse_command(payload: dict) -> Command:
@@ -54,6 +66,12 @@ def parse_command(payload: dict) -> Command:
         return AbortNavigationCommand(
             action="abort_navigation",
             request_id=str(payload["request_id"]).strip(),
+        )
+    if action == "update_poi_list":
+        return UpdatePoiListCommand(
+            action="update_poi_list",
+            version=int(payload.get("version", 0)),
+            poi_list=list(payload.get("poi_list", [])),
         )
     raise ValueError(f"unsupported action: {action}")
 
@@ -108,6 +126,24 @@ def build_arrived_event(request_id: str, sub_id: int) -> dict:
 def build_error_event(request_id: str, sub_id: int, error_message: str) -> dict:
     return {
         "event_type": "on_error",
+        "request_id": request_id,
+        "sub_id": sub_id,
+        "error_message": str(error_message),
+    }
+
+
+def build_mark_poi_ack(request_id: str, sub_id: int) -> dict:
+    return {
+        "event_type": "on_mark_poi_ack",
+        "request_id": request_id,
+        "sub_id": sub_id,
+        "status": "accepted",
+    }
+
+
+def build_mark_poi_error(request_id: str, sub_id: int, error_message: str) -> dict:
+    return {
+        "event_type": "on_mark_poi_error",
         "request_id": request_id,
         "sub_id": sub_id,
         "error_message": str(error_message),
