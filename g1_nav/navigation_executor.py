@@ -6,9 +6,10 @@ import contextlib
 import json
 import os
 import sys
+from functools import wraps
 
 
-DEFAULT_SERVER_URI = "ws://192.168.0.131:8100/ws/navigation/executor"
+DEFAULT_SERVER_URI = "ws://172.16.21.205:8100/ws/navigation/executor"
 DEFAULT_POI_STORE_FILE = os.path.expanduser("~/.ros/g1_nav/poi_store.yaml")
 DEFAULT_HEARTBEAT_INTERVAL = 30.0
 DEFAULT_LOOP_CLOSURE_POLL_SEC = 1.0
@@ -17,6 +18,30 @@ DEFAULT_SERVER_TIMEOUT = 10.0
 DEFAULT_ROBOT_BASE_FRAME = "base_link"
 DEFAULT_ODOM_TOPIC = "/lightning/odometry"
 DEFAULT_SLAM_SESSION_ID = "live_session"
+
+
+def _log(message: str):
+    print(f"[navigation_executor] {message}", flush=True)
+
+
+def _drop_loop_kwarg(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        kwargs.pop("loop", None)
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+def _patch_asyncio_for_legacy_websockets():
+    if getattr(asyncio, "_g1_nav_legacy_websockets_patched", False):
+        return
+
+    asyncio.Lock = _drop_loop_kwarg(asyncio.Lock)
+    asyncio.sleep = _drop_loop_kwarg(asyncio.sleep)
+    asyncio.wait = _drop_loop_kwarg(asyncio.wait)
+    asyncio.wait_for = _drop_loop_kwarg(asyncio.wait_for)
+    asyncio._g1_nav_legacy_websockets_patched = True
 
 
 def _build_help_text() -> str:
@@ -90,6 +115,9 @@ async def _watch_loop_closure(pose_provider, poi_store, poll_sec: float):
 
 async def main_async(raw_args):
     import rclpy
+
+    _patch_asyncio_for_legacy_websockets()
+
     import websockets
     from rclpy.node import Node
     from tf2_ros import Buffer, TransformListener
@@ -136,8 +164,13 @@ async def main_async(raw_args):
         poi_store=poi_store,
     )
 
+    connection_established = False
+
     try:
+        _log(f"connecting to {config['server_uri']}")
         async with websockets.connect(config["server_uri"], ping_interval=None) as websocket:
+            connection_established = True
+            _log("connected")
             heartbeat_task = asyncio.create_task(
                 _send_heartbeat(websocket, config["heartbeat_interval"])
             )
@@ -169,6 +202,15 @@ async def main_async(raw_args):
                     await heartbeat_task
                 with contextlib.suppress(asyncio.CancelledError):
                     await loop_closure_task
+    except Exception as exc:
+        if connection_established:
+            _log(f"connection closed: {exc}")
+        else:
+            _log(f"connection failed: {exc}")
+        raise
+    else:
+        if connection_established:
+            _log("connection closed")
     finally:
         del tf_listener
         node.destroy_node()

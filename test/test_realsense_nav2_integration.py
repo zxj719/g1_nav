@@ -335,6 +335,35 @@ def test_auto_explore_enables_realsense_scan_bridge_by_default():
     assert _text_value(argument.default_value) == 'true'
 
 
+def test_auto_explore_passes_exploration_toggle_through():
+    module = _load_launch_module(
+        'launch/g1_auto_explore.launch.py',
+        'g1_nav_auto_explore_launch_exploration',
+    )
+    launch_description = module.generate_launch_description()
+    include_action = next(
+        entity
+        for entity in launch_description.entities
+        if type(entity).__name__ == 'IncludeLaunchDescription'
+        and _include_source_location(entity).endswith('/g1_nav/launch/2d_g1_nav2_bringup.launch.py')
+    )
+    launch_arguments = dict(include_action.launch_arguments)
+
+    assert 'enable_exploration' in launch_arguments
+    assert _text_value(launch_arguments['enable_exploration']) == 'enable_exploration'
+
+
+def test_auto_explore_enables_exploration_by_default():
+    module = _load_launch_module(
+        'launch/g1_auto_explore.launch.py',
+        'g1_nav_auto_explore_launch_exploration_defaults',
+    )
+    launch_description = module.generate_launch_description()
+    argument = _declared_launch_arguments(launch_description)['enable_exploration']
+
+    assert _text_value(argument.default_value) == 'true'
+
+
 def test_auto_explore_does_not_pass_realsense_camera_arguments_through():
     module = _load_launch_module(
         'launch/g1_auto_explore.launch.py',

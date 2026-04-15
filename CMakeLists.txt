@@ -256,6 +256,11 @@ if(BUILD_TESTING)
     test/test_realsense_nav2_integration.py
   )
 
+  ament_add_pytest_test(
+    headless_navigation_script_test
+    test/test_headless_navigation_script.py
+  )
+
   ament_add_gtest(
     scan_priority_geometry_test
     test/scan_priority_geometry_test.cpp

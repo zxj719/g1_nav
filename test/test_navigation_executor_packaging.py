@@ -1,4 +1,5 @@
 import importlib.util
+import asyncio
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -35,6 +36,30 @@ def test_navigation_executor_cli_parses_server_uri_and_store_path():
     assert config["server_uri"] == "ws://10.0.0.5:8100/ws/navigation/executor"
     assert config["poi_store_file"] == "/tmp/poi_store.yaml"
     assert ros_args == ["--ros-args", "-r", "__ns:=/robot"]
+
+
+def test_navigation_executor_uses_g1_default_server_uri():
+    module = _load_module()
+
+    assert module.DEFAULT_SERVER_URI == "ws://172.16.21.205:8100/ws/navigation/executor"
+
+
+def test_navigation_executor_log_prefix_is_stable(capsys):
+    module = _load_module()
+
+    module._log("connected")
+
+    captured = capsys.readouterr()
+    assert captured.out == "[navigation_executor] connected\n"
+
+
+def test_navigation_executor_patches_asyncio_for_legacy_websockets():
+    module = _load_module()
+
+    module._patch_asyncio_for_legacy_websockets()
+    lock = asyncio.Lock(loop=None)
+
+    assert hasattr(lock, "acquire")
 
 
 def test_navigation_executor_help_does_not_require_runtime_imports(capsys, monkeypatch):

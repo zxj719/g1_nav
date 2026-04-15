@@ -21,6 +21,7 @@ def generate_launch_description():
     publish_robot_state = LaunchConfiguration('publish_robot_state')
     params_file = LaunchConfiguration('params_file')
     explorer_params_file = LaunchConfiguration('explorer_params_file')
+    enable_exploration = LaunchConfiguration('enable_exploration')
     enable_scan_bridge = LaunchConfiguration('enable_scan_bridge')
     enable_realsense_scan_bridge = LaunchConfiguration('enable_realsense_scan_bridge')
     enable_map_warmup_spin = LaunchConfiguration('enable_map_warmup_spin')
@@ -38,7 +39,7 @@ def generate_launch_description():
             'publish_robot_state': publish_robot_state,
             'params_file': params_file,
             'nav_to_pose_bt_xml': explore_nav_to_pose_bt_xml,
-            'enable_exploration': 'true',
+            'enable_exploration': enable_exploration,
             'explorer_params_file': explorer_params_file,
             'enable_scan_bridge': enable_scan_bridge,
             'enable_realsense_scan_bridge': enable_realsense_scan_bridge,
@@ -79,6 +80,11 @@ def generate_launch_description():
             default_value=os.path.join(
                 pkg_g1_nav, 'config', 'frontier_explorer_params.yaml'),
             description='Frontier explorer parameters file',
+        ),
+        DeclareLaunchArgument(
+            'enable_exploration',
+            default_value='true',
+            description='Launch frontier exploration together with Nav2.',
         ),
         DeclareLaunchArgument(
             'enable_scan_bridge',
