@@ -158,6 +158,6 @@ class NavigationExecutorCore:
                 )
             ]
             self.active_task = None
-            self.state = ExecutorState.ERROR
+            self.state = ExecutorState.IDLE
             return outbound
         return []

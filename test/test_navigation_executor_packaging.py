@@ -87,6 +87,32 @@ def test_navigation_executor_spins_ros_node_in_async_loop():
     assert spin_calls[0] == ("node", 0.0)
 
 
+def test_navigation_executor_drain_outbound_queue_sends_without_inbound_message():
+    module = _load_module()
+    sent_messages = []
+
+    class FakeWebSocket:
+        async def send(self, payload):
+            sent_messages.append(payload)
+
+    async def run_scenario():
+        outbound_queue = asyncio.Queue()
+        await outbound_queue.put({"event_type": "on_error", "request_id": "req_1"})
+        drain_task = asyncio.create_task(module._drain_outbound_queue(FakeWebSocket(), outbound_queue))
+        await asyncio.sleep(0)
+        drain_task.cancel()
+        try:
+            await drain_task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(run_scenario())
+
+    assert sent_messages == [
+        '{"event_type": "on_error", "request_id": "req_1"}'
+    ]
+
+
 def test_navigation_executor_help_does_not_require_runtime_imports(capsys, monkeypatch):
     module = _load_module()
 

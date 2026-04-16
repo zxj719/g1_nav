@@ -14,9 +14,13 @@ ROS_DOMAIN_ID_DEFAULT="${ROS_DOMAIN_ID_DEFAULT:-30}"
 ROS_SETUP="/opt/ros/humble/setup.bash"
 SLAM_WORKSPACE="/home/unitree/lightning-lm-livox"
 AUTO_WORKSPACE="/home/unitree/ros2_ws"
+STOP_WORKSPACE="/home/unitree/ros2_ws/src/g1_cmd"
+UNITREE_CHANNEL_NAME="${UNITREE_CHANNEL_NAME:-enP8p1s0}"
+FALLBACK_KILL_REGEX="${FALLBACK_KILL_REGEX:-ros2 launch g1_nav g1_auto_explore.launch.py|run_slam_online|static_transform_publisher 0 0 0 0 0 0 map odom|frontier_explorer_cpp|collision_monitor|g1_move|g1_sdk_worker|controller_server|planner_server|bt_navigator|behavior_server|lifecycle_manager|map_warmup_spin|realsense_depth_to_scan|depthimage_to_laserscan_node|pointcloud_to_laserscan_node|rviz2}"
 TF_COMMAND="${TF_COMMAND:-}"
 SLAM_COMMAND="${SLAM_COMMAND:-}"
 AUTO_COMMAND="${AUTO_COMMAND:-}"
+STOP_COMMAND="${STOP_COMMAND:-}"
 
 declare -a CHILD_PIDS=()
 declare -a CHILD_NAMES=()
@@ -53,6 +57,8 @@ Shortcuts:
 
 Environment variables:
   ROS_DOMAIN_ID_DEFAULT     Default ROS 2 domain ID when ROS_DOMAIN_ID is unset. Default: 30
+  UNITREE_CHANNEL_NAME      Unitree SDK channel for zero-velocity stop. Default: enP8p1s0
+  FALLBACK_KILL_REGEX       Extra pkill regex for shutdown cleanup.
   SUDO_PASSWORD            Password used for sudo. Default: 123
   SLAM_START_DELAY         Seconds to wait after starting slam2 before auto. Default: 5
   SHUTDOWN_GRACE_SECONDS   Seconds to wait before force kill. Default: 5
@@ -155,6 +161,26 @@ set_default_commands() {
 
   if [[ -z "$AUTO_COMMAND" ]]; then
     AUTO_COMMAND="cd ${AUTO_WORKSPACE} && source install/setup.bash && exec ros2 launch g1_nav g1_auto_explore.launch.py use_rviz:=${RVIZ} enable_realsense_scan_bridge:=${REALSENSE}"
+  fi
+
+  if [[ -z "$STOP_COMMAND" ]]; then
+    STOP_COMMAND=$(cat <<EOF
+cd ${STOP_WORKSPACE} && python3 - <<'PY'
+import time
+from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+from unitree_sdk2py.g1.loco.g1_loco_client import LocoClient
+
+ChannelFactoryInitialize(0, "${UNITREE_CHANNEL_NAME}")
+client = LocoClient()
+client.SetTimeout(1.0)
+client.Init()
+for _ in range(10):
+    client.Move(0.0, 0.0, 0.0)
+    time.sleep(0.05)
+print("sent_stop")
+PY
+EOF
+)
   fi
 }
 
@@ -281,23 +307,54 @@ reap_children() {
   done
 }
 
+send_robot_stop() {
+  if [[ "$DRY_RUN" == true ]]; then
+    printf '[dry-run] %s\n' "$STOP_COMMAND"
+    return
+  fi
+
+  log "Sending explicit zero-velocity stop on ${UNITREE_CHANNEL_NAME}"
+  if ! bash -lc "$STOP_COMMAND"; then
+    log 'Zero-velocity stop command failed'
+  fi
+}
+
+sweep_known_processes() {
+  local signal="$1"
+
+  if [[ -z "$FALLBACK_KILL_REGEX" ]]; then
+    return
+  fi
+
+  if [[ "$DRY_RUN" == true ]]; then
+    printf '[dry-run] pkill -%s -f %q || true\n' "$signal" "$FALLBACK_KILL_REGEX"
+    return
+  fi
+
+  log "Running fallback sweep with SIG${signal}"
+  pkill "-${signal}" -f "$FALLBACK_KILL_REGEX" >/dev/null 2>&1 || true
+}
+
 cleanup() {
   if [[ "$CLEANUP_DONE" == true ]]; then
     return
   fi
   CLEANUP_DONE=true
 
-  if ((${#CHILD_PIDS[@]} == 0)); then
-    return
-  fi
-
   log 'Stopping managed processes'
-  terminate_process_groups TERM
-  if ! wait_for_shutdown; then
-    log "Some processes are still alive after ${SHUTDOWN_GRACE_SECONDS}s"
-    terminate_process_groups KILL
+  send_robot_stop
+  if ((${#CHILD_PIDS[@]} > 0)); then
+    terminate_process_groups TERM
+    if ! wait_for_shutdown; then
+      log "Some processes are still alive after ${SHUTDOWN_GRACE_SECONDS}s"
+      terminate_process_groups KILL
+    fi
+    reap_children
   fi
-  reap_children
+  sweep_known_processes TERM
+  sleep 1
+  sweep_known_processes KILL
+  send_robot_stop
 }
 
 handle_signal() {
@@ -334,10 +391,12 @@ main() {
   require_command bash
   require_command sudo
   require_command setsid
+  require_command python3
   require_path "$ROS_SETUP"
   require_path "${SLAM_WORKSPACE}/install/setup.bash"
   require_path "${SLAM_WORKSPACE}/config/default_livox.yaml"
   require_path "${AUTO_WORKSPACE}/install/setup.bash"
+  require_path "$STOP_WORKSPACE"
 
   trap 'handle_signal INT' INT
   trap 'handle_signal TERM' TERM

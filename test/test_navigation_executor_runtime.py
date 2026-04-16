@@ -295,3 +295,52 @@ def test_update_poi_list_renames_existing_poi_without_touching_geometry(
     assert outbound == []
     assert stored.name == "会议室门口"
     assert stored.map_pose.x == 12.3
+
+
+def test_error_event_returns_executor_to_idle_and_clears_active_task(tmp_path: Path):
+    store = LocalPoiStore(tmp_path / "poi_store.yaml")
+    store.upsert_marked_poi(
+        "POI_001",
+        "前台",
+        PoseRecord("map", 1.0, 2.0, 0.0, 0.0, 100.0),
+        PoseRecord("odom", 1.0, 2.0, 0.0, 0.0, 100.0),
+        "session_a",
+    )
+    bridge = FakeBridge()
+    core = NavigationExecutorCore(
+        bridge=bridge,
+        pose_provider=FakePoseProvider(),
+        poi_store=store,
+    )
+
+    async def run_scenario():
+        await core.handle_message(
+            {
+                "action": "navigate_to",
+                "request_id": "req_1",
+                "sub_id": 1,
+                "target_id": "POI_001",
+            }
+        )
+        outbound = await core.handle_bridge_event(
+            {
+                "kind": "error",
+                "request_id": "req_1",
+                "sub_id": 1,
+                "error_message": "Nav2 finished with status 6",
+            }
+        )
+        return outbound, core.state, core.active_task
+
+    outbound, state_after_error, active_task_after_error = asyncio.run(run_scenario())
+
+    assert outbound == [
+        {
+            "event_type": "on_error",
+            "request_id": "req_1",
+            "sub_id": 1,
+            "error_message": "Nav2 finished with status 6",
+        }
+    ]
+    assert state_after_error == ExecutorState.IDLE
+    assert active_task_after_error is None

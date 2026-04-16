@@ -6,7 +6,7 @@ package_name = 'g1_nav'
 
 setup(
     name=package_name,
-    version='0.0.0',
+    version='0.0.1',
     packages=find_packages(exclude=['test']),
     data_files=[
         # 基础元数据文件

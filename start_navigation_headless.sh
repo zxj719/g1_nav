@@ -18,6 +18,7 @@ SLAM_WORKSPACE="${SLAM_WORKSPACE:-/home/unitree/lightning-lm-livox}"
 AUTO_WORKSPACE="${AUTO_WORKSPACE:-/home/unitree/ros2_ws}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 EXECUTOR_POI_STORE_FILE="${EXECUTOR_POI_STORE_FILE:-}"
+DEFAULT_EXECUTOR_POI_STORE_FILE="${HOME}/.ros/g1_nav/poi_store.yaml"
 TF_COMMAND="${TF_COMMAND:-}"
 SLAM_COMMAND="${SLAM_COMMAND:-}"
 AUTO_COMMAND="${AUTO_COMMAND:-}"
@@ -26,6 +27,8 @@ EXECUTOR_COMMAND="${EXECUTOR_COMMAND:-}"
 declare -a CHILD_PIDS=()
 declare -a CHILD_NAMES=()
 declare -a CHILD_PGIDS=()
+declare -a CLEANUP_PIDS=()
+declare -a CLEANUP_PGIDS=()
 CLEANUP_DONE=false
 
 usage() {
@@ -202,6 +205,30 @@ set_default_commands() {
   fi
 }
 
+executor_poi_store_file() {
+  if [[ -n "${EXECUTOR_POI_STORE_FILE}" ]]; then
+    printf '%s\n' "${EXECUTOR_POI_STORE_FILE}"
+    return 0
+  fi
+
+  printf '%s\n' "${DEFAULT_EXECUTOR_POI_STORE_FILE}"
+}
+
+reset_poi_store_file() {
+  local poi_store_file
+
+  poi_store_file="$(executor_poi_store_file)"
+  mkdir -p "$(dirname "${poi_store_file}")"
+
+  if [[ "$DRY_RUN" == true ]]; then
+    log "Would clear POI store: ${poi_store_file}"
+    return 0
+  fi
+
+  : > "${poi_store_file}"
+  log "Cleared POI store: ${poi_store_file}"
+}
+
 enable_all_cpus() {
   local sudo_script
   read -r -d '' sudo_script <<'EOF' || true
@@ -237,6 +264,26 @@ record_child() {
   CHILD_NAMES+=("$name")
   CHILD_PIDS+=("$pid")
   CHILD_PGIDS+=("$pgid")
+}
+
+append_unique() {
+  local array_name="$1"
+  local value="$2"
+  local existing
+  local -n target_array="$array_name"
+
+  for existing in "${target_array[@]:-}"; do
+    if [[ "$existing" == "$value" ]]; then
+      return 0
+    fi
+  done
+
+  target_array+=("$value")
+}
+
+is_pid_alive() {
+  local pid="$1"
+  kill -0 "$pid" >/dev/null 2>&1
 }
 
 is_pgid_alive() {
@@ -278,28 +325,74 @@ start_managed_process() {
   log "${name} started with pid ${pid}, pgid ${pgid}"
 }
 
-terminate_process_groups() {
-  local signal="$1"
-  local idx pgid name
+collect_descendant_pids() {
+  local pid="$1"
+  local child
 
-  for idx in "${!CHILD_PGIDS[@]}"; do
-    pgid="${CHILD_PGIDS[$idx]}"
-    name="${CHILD_NAMES[$idx]}"
+  while read -r child; do
+    [[ -n "$child" ]] || continue
+    printf '%s\n' "$child"
+    collect_descendant_pids "$child"
+  done < <(pgrep -P "$pid" 2>/dev/null || true)
+}
+
+snapshot_cleanup_targets() {
+  local root_pid child_pid pid pgid
+
+  CLEANUP_PIDS=()
+  CLEANUP_PGIDS=()
+
+  for root_pid in "${CHILD_PIDS[@]}"; do
+    append_unique CLEANUP_PIDS "$root_pid"
+    if ! is_pid_alive "$root_pid"; then
+      continue
+    fi
+
+    while read -r child_pid; do
+      [[ -n "$child_pid" ]] || continue
+      append_unique CLEANUP_PIDS "$child_pid"
+    done < <(collect_descendant_pids "$root_pid")
+  done
+
+  for pid in "${CLEANUP_PIDS[@]}"; do
+    if ! is_pid_alive "$pid"; then
+      continue
+    fi
+
+    pgid="$(ps -o pgid= -p "$pid" | tr -d '[:space:]')"
+    if [[ -n "$pgid" ]]; then
+      append_unique CLEANUP_PGIDS "$pgid"
+    fi
+  done
+}
+
+signal_cleanup_targets() {
+  local signal="$1"
+  local pgid pid
+
+  for pgid in "${CLEANUP_PGIDS[@]}"; do
     if is_pgid_alive "$pgid"; then
-      log "Sending SIG${signal} to ${name} (pgid ${pgid})"
+      log "Sending SIG${signal} to process group ${pgid}"
       kill "-${signal}" -- "-${pgid}" >/dev/null 2>&1 || true
+    fi
+  done
+
+  for pid in "${CLEANUP_PIDS[@]}"; do
+    if is_pid_alive "$pid"; then
+      log "Sending SIG${signal} to pid ${pid}"
+      kill "-${signal}" "$pid" >/dev/null 2>&1 || true
     fi
   done
 }
 
 wait_for_shutdown() {
   local deadline=$((SECONDS + SHUTDOWN_GRACE_SECONDS))
-  local pgid any_alive
+  local pid any_alive
 
   while (( SECONDS < deadline )); do
     any_alive=false
-    for pgid in "${CHILD_PGIDS[@]}"; do
-      if is_pgid_alive "$pgid"; then
+    for pid in "${CLEANUP_PIDS[@]}"; do
+      if is_pid_alive "$pid"; then
         any_alive=true
         break
       fi
@@ -331,10 +424,11 @@ cleanup() {
   fi
 
   log 'Stopping managed processes'
-  terminate_process_groups TERM
+  snapshot_cleanup_targets
+  signal_cleanup_targets TERM
   if ! wait_for_shutdown; then
     log "Some processes are still alive after ${SHUTDOWN_GRACE_SECONDS}s"
-    terminate_process_groups KILL
+    signal_cleanup_targets KILL
   fi
   reap_children
 }
@@ -371,6 +465,8 @@ main() {
   set_default_commands
 
   require_command bash
+  require_command pgrep
+  require_command ps
   require_command setsid
   require_command sudo
   require_command "$PYTHON_BIN"
@@ -386,6 +482,7 @@ main() {
   trap cleanup EXIT
 
   enable_all_cpus
+  reset_poi_store_file
 
   log "Using ROS_DOMAIN_ID=${ROS_DOMAIN_ID}"
   log "RViz enabled: ${RVIZ}"

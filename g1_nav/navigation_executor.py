@@ -94,6 +94,12 @@ async def _send_heartbeat(websocket, interval_sec: float):
         await websocket.send(json.dumps({"type": "ping"}, ensure_ascii=False))
 
 
+async def _drain_outbound_queue(websocket, outbound_queue: asyncio.Queue):
+    while True:
+        payload = await outbound_queue.get()
+        await websocket.send(json.dumps(payload, ensure_ascii=False))
+
+
 async def _spin_ros_node(node, spin_once_fn, interval_sec: float = 0.01):
     while True:
         spin_once_fn(node, timeout_sec=0.0)
@@ -186,6 +192,9 @@ async def main_async(raw_args):
             heartbeat_task = asyncio.create_task(
                 _send_heartbeat(websocket, config["heartbeat_interval"])
             )
+            outbound_task = asyncio.create_task(
+                _drain_outbound_queue(websocket, outbound_queue)
+            )
             loop_closure_task = asyncio.create_task(
                 _watch_loop_closure(
                     pose_provider,
@@ -203,16 +212,15 @@ async def main_async(raw_args):
                         continue
                     for outbound in await core.handle_message(payload):
                         await websocket.send(json.dumps(outbound, ensure_ascii=False))
-                    while not outbound_queue.empty():
-                        await websocket.send(
-                            json.dumps(await outbound_queue.get(), ensure_ascii=False)
-                        )
             finally:
                 heartbeat_task.cancel()
+                outbound_task.cancel()
                 loop_closure_task.cancel()
                 spin_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await heartbeat_task
+                with contextlib.suppress(asyncio.CancelledError):
+                    await outbound_task
                 with contextlib.suppress(asyncio.CancelledError):
                     await loop_closure_task
                 with contextlib.suppress(asyncio.CancelledError):
