@@ -88,7 +88,17 @@ class NavigationExecutorCore:
             return [paused]
         if command.action == "mark_current_poi":
             outbound = [build_mark_poi_ack(command.request_id, command.sub_id)]
-            captured = await self.pose_provider.capture_for_poi()
+            try:
+                captured = await self.pose_provider.capture_for_poi()
+            except Exception as exc:
+                outbound.append(
+                    build_mark_poi_error(
+                        command.request_id,
+                        command.sub_id,
+                        str(exc),
+                    )
+                )
+                return outbound
             if self.now_fn() - captured.map_pose.stamp_sec > self.pose_stale_after_sec:
                 outbound.append(
                     build_mark_poi_error(

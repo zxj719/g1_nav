@@ -94,6 +94,12 @@ async def _send_heartbeat(websocket, interval_sec: float):
         await websocket.send(json.dumps({"type": "ping"}, ensure_ascii=False))
 
 
+async def _spin_ros_node(node, spin_once_fn, interval_sec: float = 0.01):
+    while True:
+        spin_once_fn(node, timeout_sec=0.0)
+        await asyncio.sleep(interval_sec)
+
+
 async def _watch_loop_closure(pose_provider, poi_store, poll_sec: float):
     last_transform = None
     while True:
@@ -130,6 +136,12 @@ async def main_async(raw_args):
     config, ros_args = _parse_cli_args(raw_args)
     rclpy.init(args=ros_args)
     node = Node("navigation_executor")
+    spin_task = asyncio.create_task(
+        _spin_ros_node(
+            node,
+            spin_once_fn=rclpy.spin_once,
+        )
+    )
     tf_buffer = Buffer()
     tf_listener = TransformListener(tf_buffer, node)
     poi_store = LocalPoiStore(config["poi_store_file"])
@@ -198,10 +210,13 @@ async def main_async(raw_args):
             finally:
                 heartbeat_task.cancel()
                 loop_closure_task.cancel()
+                spin_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await heartbeat_task
                 with contextlib.suppress(asyncio.CancelledError):
                     await loop_closure_task
+                with contextlib.suppress(asyncio.CancelledError):
+                    await spin_task
     except Exception as exc:
         if connection_established:
             _log(f"connection closed: {exc}")

@@ -220,6 +220,43 @@ def test_mark_current_poi_returns_error_for_stale_pose(tmp_path: Path):
     assert outbound[-1]["error_message"] == "当前位置位姿数据过期"
 
 
+def test_mark_current_poi_returns_error_when_pose_capture_raises(tmp_path: Path):
+    store = LocalPoiStore(tmp_path / "poi_store.yaml")
+    bridge = FakeBridge()
+
+    class RaisingPoseProvider:
+        async def capture_for_poi(self):
+            raise RuntimeError(
+                '"map" passed to lookupTransform argument target_frame does not exist.'
+            )
+
+    core = NavigationExecutorCore(
+        bridge=bridge,
+        pose_provider=RaisingPoseProvider(),
+        poi_store=store,
+    )
+
+    async def run_scenario():
+        return await core.handle_message(
+            {
+                "action": "mark_current_poi",
+                "request_id": "req_mark",
+                "sub_id": 3,
+                "poi": {"id": "POI_006", "name": "会议室门口"},
+            }
+        )
+
+    outbound = asyncio.run(run_scenario())
+
+    assert [item["event_type"] for item in outbound] == [
+        "on_mark_poi_ack",
+        "on_mark_poi_error",
+    ]
+    assert outbound[-1]["request_id"] == "req_mark"
+    assert outbound[-1]["sub_id"] == 3
+    assert '"map" passed to lookupTransform' in outbound[-1]["error_message"]
+
+
 def test_update_poi_list_renames_existing_poi_without_touching_geometry(
     tmp_path: Path,
 ):

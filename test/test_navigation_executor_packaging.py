@@ -62,6 +62,31 @@ def test_navigation_executor_patches_asyncio_for_legacy_websockets():
     assert hasattr(lock, "acquire")
 
 
+def test_navigation_executor_spins_ros_node_in_async_loop():
+    module = _load_module()
+    spin_calls = []
+
+    def fake_spin_once(node, timeout_sec):
+        spin_calls.append((node, timeout_sec))
+
+    async def run_scenario():
+        task = asyncio.create_task(
+            module._spin_ros_node("node", fake_spin_once, interval_sec=0.0)
+        )
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(run_scenario())
+
+    assert spin_calls
+    assert spin_calls[0] == ("node", 0.0)
+
+
 def test_navigation_executor_help_does_not_require_runtime_imports(capsys, monkeypatch):
     module = _load_module()
 
