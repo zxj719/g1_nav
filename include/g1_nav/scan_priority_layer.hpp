@@ -77,6 +77,7 @@ private:
   int min_contiguous_beams_{3};
   bool debug_markers_enabled_{false};
   double scan_timeout_s_{0.5};
+  bool require_live_scan_{true};
 };
 
 }  // namespace g1_nav

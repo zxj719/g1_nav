@@ -103,6 +103,7 @@ controller_server:                                  # 局部规划器服务器
   ros__parameters:
     use_sim_time: false
     global_frame: odom
+    odom_topic: /lightning/odometry
     # NOTE：若遇到 SLAM 回环后局部控制抖动/TF 超时，可考虑让局部控制工作在 odom，
     # 并确保它与 local_costmap.global_frame（本文件为 odom）一致。
     controller_frequency: 15.0                      # 降一点频率，减少控制循环超时抖动
@@ -252,6 +253,7 @@ local_costmap:
         obstacle_margin_m: 0.12
         min_contiguous_beams: 3
         debug_markers_enabled: False
+        require_live_scan: True
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True

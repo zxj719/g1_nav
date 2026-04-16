@@ -3,6 +3,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import yaml
+from launch import LaunchContext
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -79,6 +80,34 @@ def _declared_launch_arguments(launch_description):
         for entity in launch_description.entities
         if type(entity).__name__ == 'DeclareLaunchArgument'
     }
+
+
+def _rewritten_bringup_nav2_params(*, enable_scan_bridge: str, enable_realsense_scan_bridge: str):
+    module = _load_launch_module(
+        'launch/2d_g1_nav2_bringup.launch.py',
+        'g1_nav_bringup_launch_rewritten_params',
+    )
+    launch_description = module.generate_launch_description()
+    include_action = next(
+        entity
+        for entity in launch_description.entities
+        if type(entity).__name__ == 'IncludeLaunchDescription'
+        and _include_source_location(entity).endswith('/nav2_bringup/launch/navigation_launch.py')
+    )
+    params_file_substitution = dict(include_action.launch_arguments)['params_file']
+
+    context = LaunchContext()
+    context.launch_configurations.update({
+        'params_file': str(REPO_ROOT / 'config' / 'nav2_params_2d.yaml'),
+        'nav_to_pose_bt_xml': '/tmp/nav_to_pose.xml',
+        'nav_through_poses_bt_xml': '/tmp/nav_through_poses.xml',
+        'enable_scan_bridge': enable_scan_bridge,
+        'enable_realsense_scan_bridge': enable_realsense_scan_bridge,
+    })
+
+    rewritten_path = params_file_substitution.perform(context)
+    with Path(rewritten_path).open() as stream:
+        return yaml.safe_load(stream)
 
 
 def _named_sequence(relative_path: str, sequence_name: str):
@@ -452,7 +481,30 @@ def test_local_costmap_uses_scan_priority_layer():
         'obstacle_margin_m': 0.12,
         'min_contiguous_beams': 3,
         'debug_markers_enabled': False,
+        'require_live_scan': True,
     }
+
+
+def test_bringup_marks_scan_priority_layer_optional_when_no_scan_source_is_enabled():
+    config = _rewritten_bringup_nav2_params(
+        enable_scan_bridge='false',
+        enable_realsense_scan_bridge='false',
+    )
+
+    layer = config['local_costmap']['local_costmap']['ros__parameters']['scan_priority_layer']
+
+    assert layer['require_live_scan'] is False
+
+
+def test_bringup_keeps_scan_priority_layer_strict_when_a_scan_source_is_enabled():
+    config = _rewritten_bringup_nav2_params(
+        enable_scan_bridge='false',
+        enable_realsense_scan_bridge='true',
+    )
+
+    layer = config['local_costmap']['local_costmap']['ros__parameters']['scan_priority_layer']
+
+    assert layer['require_live_scan'] is True
 
 
 def test_global_costmap_uses_scan_obstacle_layer_for_dynamic_replanning():
@@ -596,6 +648,15 @@ def test_velocity_smoother_clamps_y_velocity_to_zero():
 
     assert params['max_velocity'][1] == 0.0
     assert params['min_velocity'][1] == 0.0
+
+
+def test_controller_server_uses_lightning_odometry():
+    with (REPO_ROOT / 'config/nav2_params_2d.yaml').open() as stream:
+        config = yaml.safe_load(stream)
+
+    params = config['controller_server']['ros__parameters']
+
+    assert params['odom_topic'] == '/lightning/odometry'
 
 
 def test_bt_navigator_loads_escape_obstacle_plugin():

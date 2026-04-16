@@ -8,7 +8,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from nav2_common.launch import RewrittenYaml
 
@@ -33,12 +33,21 @@ def generate_launch_description():
     map_warmup_angular_speed = LaunchConfiguration('map_warmup_angular_speed')
     nav_to_pose_bt_xml = LaunchConfiguration('nav_to_pose_bt_xml')
     nav_through_poses_bt_xml = LaunchConfiguration('nav_through_poses_bt_xml')
+    scan_observation_active = PythonExpression([
+        "'true' if ('",
+        enable_scan_bridge,
+        "' == 'true' or '",
+        enable_realsense_scan_bridge,
+        "' == 'true') else 'false'",
+    ])
     configured_nav2_params = RewrittenYaml(
         source_file=params_file,
         param_rewrites={
             'default_bt_xml_filename': nav_to_pose_bt_xml,
             'default_nav_to_pose_bt_xml': nav_to_pose_bt_xml,
             'default_nav_through_poses_bt_xml': nav_through_poses_bt_xml,
+            'local_costmap.local_costmap.ros__parameters.scan_priority_layer.require_live_scan':
+                scan_observation_active,
         },
         convert_types=True,
     )

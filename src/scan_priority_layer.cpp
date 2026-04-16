@@ -39,6 +39,7 @@ void ScanPriorityLayer::onInitialize()
   declareParameter("min_contiguous_beams", rclcpp::ParameterValue(3));
   declareParameter("debug_markers_enabled", rclcpp::ParameterValue(false));
   declareParameter("scan_timeout_s", rclcpp::ParameterValue(0.5));
+  declareParameter("require_live_scan", rclcpp::ParameterValue(true));
 
   enabled_ = node->get_parameter(getFullName("enabled")).as_bool();
   scan_topic_ = node->get_parameter(getFullName("scan_topic")).as_string();
@@ -53,6 +54,7 @@ void ScanPriorityLayer::onInitialize()
   debug_markers_enabled_ = node->get_parameter(
     getFullName("debug_markers_enabled")).as_bool();
   scan_timeout_s_ = node->get_parameter(getFullName("scan_timeout_s")).as_double();
+  require_live_scan_ = node->get_parameter(getFullName("require_live_scan")).as_bool();
 
   scan_sub_ = node->create_subscription<sensor_msgs::msg::LaserScan>(
     scan_topic_,
@@ -66,7 +68,7 @@ void ScanPriorityLayer::onInitialize()
 
   matchSize();
   clearLayer();
-  current_ = false;
+  current_ = !enabled_ || !require_live_scan_;
 }
 
 void ScanPriorityLayer::activate()
@@ -87,7 +89,7 @@ void ScanPriorityLayer::reset()
 {
   matchSize();
   clearLayer();
-  current_ = false;
+  current_ = !enabled_ || !require_live_scan_;
 }
 
 bool ScanPriorityLayer::isClearable()
@@ -111,13 +113,18 @@ void ScanPriorityLayer::updateBounds(
   touch(robot_x - max_range_, robot_y - max_range_, min_x, min_y, max_x, max_y);
   touch(robot_x + max_range_, robot_y + max_range_, min_x, min_y, max_x, max_y);
 
-  if (!enabled_ || !node || !scan) {
-    current_ = false;
+  if (!enabled_) {
+    current_ = true;
+    return;
+  }
+
+  if (!node || !scan) {
+    current_ = !require_live_scan_;
     return;
   }
 
   if ((node->now() - rclcpp::Time(scan->header.stamp)).seconds() > scan_timeout_s_) {
-    current_ = false;
+    current_ = !require_live_scan_;
     return;
   }
 
