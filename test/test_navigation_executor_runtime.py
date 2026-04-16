@@ -1,8 +1,9 @@
 import asyncio
+from dataclasses import dataclass
 from pathlib import Path
 
 from g1_nav.navigation_executor_core import ExecutorState, NavigationExecutorCore
-from g1_nav.navigation_types import CapturedPose, PoseRecord
+from g1_nav.navigation_types import CapturedPose, PoseRecord, StoredPoi
 from g1_nav.poi_store import LocalPoiStore
 
 
@@ -28,6 +29,28 @@ class FakePoseProvider:
         if self.captured_pose is None:
             raise AssertionError("mark_current_poi is not part of this test")
         return self.captured_pose
+
+
+@dataclass
+class FakeResolvedNavigationGoal:
+    poi: StoredPoi
+    used_snap: bool
+
+
+class FakeGoalResolver:
+    def __init__(self, resolved_goal=None, anchor_admissible=True):
+        self.resolved_goal = resolved_goal
+        self.anchor_admissible = anchor_admissible
+        self.resolve_calls = []
+        self.anchor_checks = []
+
+    def resolve_initial_goal(self, poi):
+        self.resolve_calls.append(poi.poi_id)
+        return self.resolved_goal
+
+    def is_anchor_admissible(self, poi):
+        self.anchor_checks.append(poi.poi_id)
+        return self.anchor_admissible
 
 
 def test_navigate_to_starts_bridge_and_progress_event_is_forwarded(tmp_path: Path):
@@ -131,6 +154,128 @@ def test_abort_navigation_emits_paused_progress(tmp_path: Path):
             "status": "paused",
         }
     ]
+
+
+def test_navigate_to_uses_snap_goal_then_retries_anchor(tmp_path: Path):
+    store = LocalPoiStore(tmp_path / "poi_store.yaml")
+    anchor_poi = store.upsert_marked_poi(
+        "POI_001",
+        "前台",
+        PoseRecord("map", 0.0, 0.0, 0.0, 1.2, 100.0),
+        PoseRecord("odom", 0.0, 0.0, 0.0, 1.2, 100.0),
+        "session_a",
+    )
+    snap_poi = StoredPoi(
+        poi_id="POI_001",
+        name="前台",
+        map_pose=PoseRecord("map", 0.5, 0.0, 0.0, 1.2, 100.0),
+        odom_pose=anchor_poi.odom_pose,
+        slam_session_id=anchor_poi.slam_session_id,
+    )
+    bridge = FakeBridge()
+    resolver = FakeGoalResolver(
+        resolved_goal=FakeResolvedNavigationGoal(snap_poi, used_snap=True),
+        anchor_admissible=True,
+    )
+    core = NavigationExecutorCore(
+        bridge=bridge,
+        pose_provider=FakePoseProvider(),
+        poi_store=store,
+        goal_resolver=resolver,
+    )
+
+    async def run_scenario():
+        await core.handle_message(
+            {
+                "action": "navigate_to",
+                "request_id": "req_1",
+                "sub_id": 1,
+                "target_id": "POI_001",
+            }
+        )
+        outbound = await core.handle_bridge_event(
+            {
+                "kind": "arrived",
+                "request_id": "req_1",
+                "sub_id": 1,
+            }
+        )
+        return outbound, core.state, core.active_task
+
+    outbound, state_after_snap_arrival, active_task = asyncio.run(run_scenario())
+
+    assert outbound == []
+    assert bridge.started == [
+        ("req_1", 1, "POI_001"),
+        ("req_1", 1, "POI_001"),
+    ]
+    assert resolver.resolve_calls == ["POI_001"]
+    assert resolver.anchor_checks == ["POI_001"]
+    assert state_after_snap_arrival == ExecutorState.STARTING
+    assert active_task is not None
+    assert active_task.phase == "to_anchor"
+
+
+def test_snap_arrival_aborts_when_anchor_remains_unreachable(tmp_path: Path):
+    store = LocalPoiStore(tmp_path / "poi_store.yaml")
+    anchor_poi = store.upsert_marked_poi(
+        "POI_001",
+        "前台",
+        PoseRecord("map", 0.0, 0.0, 0.0, 1.2, 100.0),
+        PoseRecord("odom", 0.0, 0.0, 0.0, 1.2, 100.0),
+        "session_a",
+    )
+    snap_poi = StoredPoi(
+        poi_id="POI_001",
+        name="前台",
+        map_pose=PoseRecord("map", 0.5, 0.0, 0.0, 1.2, 100.0),
+        odom_pose=anchor_poi.odom_pose,
+        slam_session_id=anchor_poi.slam_session_id,
+    )
+    bridge = FakeBridge()
+    resolver = FakeGoalResolver(
+        resolved_goal=FakeResolvedNavigationGoal(snap_poi, used_snap=True),
+        anchor_admissible=False,
+    )
+    core = NavigationExecutorCore(
+        bridge=bridge,
+        pose_provider=FakePoseProvider(),
+        poi_store=store,
+        goal_resolver=resolver,
+    )
+
+    async def run_scenario():
+        await core.handle_message(
+            {
+                "action": "navigate_to",
+                "request_id": "req_1",
+                "sub_id": 1,
+                "target_id": "POI_001",
+            }
+        )
+        outbound = await core.handle_bridge_event(
+            {
+                "kind": "arrived",
+                "request_id": "req_1",
+                "sub_id": 1,
+            }
+        )
+        return outbound, core.state, core.active_task
+
+    outbound, state_after_error, active_task = asyncio.run(run_scenario())
+
+    assert outbound == [
+        {
+            "event_type": "on_error",
+            "request_id": "req_1",
+            "sub_id": 1,
+            "error_message": "到达扩圈可行点后，目标点仍不可达",
+        }
+    ]
+    assert bridge.started == [("req_1", 1, "POI_001")]
+    assert resolver.anchor_checks == ["POI_001"]
+    assert state_after_error == ExecutorState.IDLE
+    assert active_task is None
 
 
 def test_mark_current_poi_while_navigating_does_not_cancel_navigation(

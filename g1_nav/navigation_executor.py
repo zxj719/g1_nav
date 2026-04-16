@@ -18,6 +18,11 @@ DEFAULT_SERVER_TIMEOUT = 10.0
 DEFAULT_ROBOT_BASE_FRAME = "base_link"
 DEFAULT_ODOM_TOPIC = "/lightning/odometry"
 DEFAULT_SLAM_SESSION_ID = "live_session"
+DEFAULT_GRID_MAP_TOPIC = "/lightning/grid_map"
+DEFAULT_GLOBAL_COSTMAP_TOPIC = "/global_costmap/costmap"
+DEFAULT_NAV_GOAL_SNAP_RADIUS = 0.5
+DEFAULT_NAV_GOAL_FALLBACK_SNAP_RADIUS = 1.0
+DEFAULT_NAV_GOAL_CLEARANCE_RADIUS = 0.1
 
 
 def _log(message: str):
@@ -70,6 +75,11 @@ def _parse_cli_args(raw_args):
         "robot_base_frame": DEFAULT_ROBOT_BASE_FRAME,
         "odom_topic": DEFAULT_ODOM_TOPIC,
         "slam_session_id": DEFAULT_SLAM_SESSION_ID,
+        "grid_map_topic": DEFAULT_GRID_MAP_TOPIC,
+        "global_costmap_topic": DEFAULT_GLOBAL_COSTMAP_TOPIC,
+        "nav_goal_snap_radius": DEFAULT_NAV_GOAL_SNAP_RADIUS,
+        "nav_goal_fallback_snap_radius": DEFAULT_NAV_GOAL_FALLBACK_SNAP_RADIUS,
+        "nav_goal_clearance_radius": DEFAULT_NAV_GOAL_CLEARANCE_RADIUS,
     }
     ros_args = []
     i = 0
@@ -135,6 +145,7 @@ async def main_async(raw_args):
     from tf2_ros import Buffer, TransformListener
 
     from g1_nav.navigation_executor_core import NavigationExecutorCore
+    from g1_nav.navigation_goal_resolver import NavigationGoalResolver
     from g1_nav.nav2_action_bridge import Nav2ActionBridge
     from g1_nav.poi_store import LocalPoiStore
     from g1_nav.pose_provider import TfPoseProvider
@@ -176,10 +187,20 @@ async def main_async(raw_args):
         odom_topic=config["odom_topic"],
         slam_session_id_fn=lambda: config["slam_session_id"],
     )
+    goal_resolver = NavigationGoalResolver(
+        node=node,
+        pose_provider=pose_provider,
+        map_topic=config["grid_map_topic"],
+        global_costmap_topic=config["global_costmap_topic"],
+        snap_radius=config["nav_goal_snap_radius"],
+        fallback_snap_radius=config["nav_goal_fallback_snap_radius"],
+        goal_clearance_radius=config["nav_goal_clearance_radius"],
+    )
     core = NavigationExecutorCore(
         bridge=bridge,
         pose_provider=pose_provider,
         poi_store=poi_store,
+        goal_resolver=goal_resolver,
     )
 
     connection_established = False

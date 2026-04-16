@@ -74,6 +74,9 @@ class TfPoseProvider:
             stamp_sec=float(stamp.sec) + float(stamp.nanosec) / 1e9,
         )
 
+    def current_map_pose(self) -> PoseRecord:
+        return self._lookup_map_pose()
+
     def _lookup_odom_pose(self) -> PoseRecord:
         if self.latest_odom_pose is None:
             raise RuntimeError(f"no odometry available on {self.odom_topic}")
