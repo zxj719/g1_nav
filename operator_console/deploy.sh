@@ -15,7 +15,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 G1_USER="${G1_USER:-unitree}"
-G1_IP="${1:-172.16.21.205}"
+G1_IP="${1:-172.16.22.130}"
 G1_DEST="/home/${G1_USER}/ros2_ws/src/g1_nav/operator_console"
 CHECK_ONLY=false
 
@@ -58,17 +58,10 @@ log "Deploying to ${G1_USER}@${G1_IP}:${G1_DEST}/"
 
 # Step 1: Copy files
 log "Step 1/4: Copying files..."
-ssh "${G1_USER}@${G1_IP}" "mkdir -p ${G1_DEST}/web ${G1_DEST}/systemd"
+ssh "${G1_USER}@${G1_IP}" "mkdir -p ${G1_DEST}"
 rsync -avz --delete \
-    "${SCRIPT_DIR}/launch_manager.py" \
-    "${SCRIPT_DIR}/profiles.yaml" \
+    "${SCRIPT_DIR}/" \
     "${G1_USER}@${G1_IP}:${G1_DEST}/"
-rsync -avz --delete \
-    "${SCRIPT_DIR}/web/" \
-    "${G1_USER}@${G1_IP}:${G1_DEST}/web/"
-rsync -avz --delete \
-    "${SCRIPT_DIR}/systemd/" \
-    "${G1_USER}@${G1_IP}:${G1_DEST}/systemd/"
 
 # Step 2: Install dependencies
 log "Step 2/4: Installing dependencies..."

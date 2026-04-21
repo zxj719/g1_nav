@@ -513,7 +513,7 @@ cd ~/ros2_ws/src/g1_nav && git pull
 cd operator_console && bash deploy.sh --check
 
 # 3. 实际部署（如果从开发机远程推送，第一个参数是 G1 IP）
-bash deploy.sh 172.16.21.205
+bash deploy.sh 172.16.22.130
 ```
 
 ### 8.2 健康检查

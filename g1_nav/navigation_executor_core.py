@@ -76,7 +76,18 @@ class NavigationExecutorCore:
             self.poi_store.apply_semantic_directory(command.poi_list)
             return []
         if command.action == "navigate_to":
-            poi = self.poi_store.get_required(command.target_id)
+            try:
+                poi = self.poi_store.get_required(command.target_id)
+            except KeyError:
+                self.state = ExecutorState.IDLE
+                self.active_task = None
+                return [
+                    build_error_event(
+                        command.request_id,
+                        command.sub_id,
+                        f"目标点不存在: {command.target_id}",
+                    )
+                ]
             if self.active_task is not None:
                 await self.bridge.cancel_current()
             resolved_goal = self.goal_resolver.resolve_initial_goal(poi)

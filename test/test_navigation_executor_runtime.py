@@ -156,6 +156,40 @@ def test_abort_navigation_emits_paused_progress(tmp_path: Path):
     ]
 
 
+def test_navigate_to_unknown_poi_returns_error_without_starting_bridge(tmp_path: Path):
+    store = LocalPoiStore(tmp_path / "poi_store.yaml")
+    bridge = FakeBridge()
+    core = NavigationExecutorCore(
+        bridge=bridge,
+        pose_provider=FakePoseProvider(),
+        poi_store=store,
+    )
+
+    async def run_scenario():
+        return await core.handle_message(
+            {
+                "action": "navigate_to",
+                "request_id": "req_missing",
+                "sub_id": 9,
+                "target_id": "POI_014",
+            }
+        )
+
+    outbound = asyncio.run(run_scenario())
+
+    assert outbound == [
+        {
+            "event_type": "on_error",
+            "request_id": "req_missing",
+            "sub_id": 9,
+            "error_message": "目标点不存在: POI_014",
+        }
+    ]
+    assert bridge.started == []
+    assert core.state == ExecutorState.IDLE
+    assert core.active_task is None
+
+
 def test_navigate_to_uses_snap_goal_then_retries_anchor(tmp_path: Path):
     store = LocalPoiStore(tmp_path / "poi_store.yaml")
     anchor_poi = store.upsert_marked_poi(
